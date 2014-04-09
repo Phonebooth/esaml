@@ -16,7 +16,7 @@
 init(Req, _Args) -> {ok, Req}.
 
 check_duplicate(Assertion, Sha1, Req) ->
-    case esaml:check_dupe_ets(Assertion, Sha1) of
+    case esaml_util:check_dupe_ets(Assertion, Sha1) of
         ok -> {ok, Req};
         _ -> {duplicate, Req}
     end.
