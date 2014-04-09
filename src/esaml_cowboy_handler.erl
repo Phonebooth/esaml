@@ -131,7 +131,7 @@ generate_post_html(Dest, Req) ->
 get(<<"auth">>, Req, S = #state{sp = SP}) ->
     SignedXml = SP:authn_request(S#state.idp_target),
     AuthnReq = lists:flatten(xmerl:export([SignedXml], xmerl_xml)),
-    Param = edoc_lib:escape_uri(base64:encode_to_string(zlib:zip(AuthnReq))),
+    Param = http_uri:encode(base64:encode_to_string(zlib:zip(AuthnReq))),
     Target = list_to_binary(S#state.idp_target ++ "?SAMLEncoding=urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE&SAMLRequest=" ++ Param),
     {UA, _} = cowboy_req:header(<<"user-agent">>, Req, <<"">>),
     IsIE = not (binary:match(UA, <<"MSIE">>) =:= nomatch),
