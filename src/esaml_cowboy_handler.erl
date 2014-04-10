@@ -19,11 +19,11 @@
 
 init(_Transport, Req, Options) ->
     PrivKey = case proplists:get_value(sp_private_key, Options, esaml:config(sp_private_key)) of
-        undefined -> none;
+        undefined -> undefined;
         PrivKeyPath -> esaml_util:load_private_key(PrivKeyPath)
     end,
     Cert = case proplists:get_value(sp_certificate, Options, esaml:config(sp_certificate)) of
-        undefined -> none;
+        undefined -> undefined;
         CertPath -> esaml_util:load_certificate(CertPath)
     end,
     Tech = proplists:get_value(tech_contact, Options, esaml:config(tech_contact, [{name, "undefined"}, {email, "undefined"}])),
