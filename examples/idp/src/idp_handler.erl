@@ -44,7 +44,7 @@ handle(Req, S = #state{}) ->
     {Method, Req3} = cowboy_req:method(Req2),
     handle(Method, Operation, Req3, S).
 
-% Return our SP metadata as signed XML
+% Return our IDP metadata as signed XML
 handle(<<"GET">>, <<"metadata">>, Req, S = #state{idp = IDP}) ->
     {ok, Req2} = esaml_cowboy:reply_with_metadata(IDP, Req),
     {ok, Req2, S};
@@ -55,7 +55,30 @@ handle(<<"GET">>, <<"login">>, Req, S = #state{idp = IDP}) ->
     io:format("~p~n", [SAMLRequest]),
     {ok, AuthnRequest} = esaml:decode_authn_request(SAMLRequest),
     io:format("~p~n", [AuthnRequest]),
-    {ok, Req3} = esaml_cowboy:reply_with_authnresp(IDP, AuthnRequest, RelayState, Req2),
+    Now = erlang:localtime_to_universaltime(erlang:localtime()),
+    Stamp = esaml_util:datetime_to_saml(Now),
+    Stamp2 = esaml_util:datetime_to_saml(calendar:gregorian_seconds_to_datetime(calendar:datetime_to_gregorian_seconds(Now) + 3600)),
+    Assertion = #esaml_assertion{
+       issue_instant = Stamp,
+       recipient = AuthnRequest#esaml_authnreq.issuer,
+       issuer = IDP#esaml_idp.metadata_uri,
+       subject = #esaml_subject{
+                    name = "AdamCook",
+                    recipient = AuthnRequest#esaml_authnreq.consumer_location,
+                    authn_req_id = AuthnRequest#esaml_authnreq.id,
+                    notonorafter = Stamp2
+                   },
+       statement = #esaml_authn_statement{
+                      issue_instant = Stamp,
+                      session_index = "session_1",
+                      context_class = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
+                     },
+       attributes = [{email, "test2@bandwidth.com"},
+                     {givenName, "John"},
+                     {sn, "Smith"},
+                     {memberOf, "rw_communityuser"}]
+    },
+    {ok, Req3} = esaml_cowboy:reply_with_authnresp(IDP, AuthnRequest, Assertion, RelayState, Req2),
     {ok, Req3, S};
 handle(<<"GET">>, <<"logout">>, Req, S = #state{idp = IDP}) ->
     {QS, Req2} = cowboy_req:qs_vals(Req),
