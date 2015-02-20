@@ -10,7 +10,7 @@
 %%
 %% This module makes it easier to use esaml in your Cowboy-based web
 %% application, by providing easy wrappers around the functions in
-%% esaml_binding and esaml_sp.
+%% esaml_binding, esaml_sp, and esaml_idp.
 -module(esaml_cowboy).
 
 -include_lib("xmerl/include/xmerl.hrl").
