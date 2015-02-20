@@ -1,0 +1,15 @@
+{application, idp,
+ [
+  {description, "SAML Identity Provider for erlang"},
+  {vsn, "1"},
+  {registered, []},
+  {included_applications, [
+  ]},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  esaml,
+                  cowboy
+                 ]},
+  {mod, { idp_app, []}}
+ ]}.

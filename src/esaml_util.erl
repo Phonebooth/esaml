@@ -17,7 +17,7 @@
 -export([start_ets/0, check_dupe_ets/2]).
 -export([folduntil/3, thread/2, threaduntil/2]).
 -export([build_nsinfo/2]).
--export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1]).
+-export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1, load_sp_metadata/1]).
 -export([convert_fingerprints/1]).
 
 %% @doc Converts various ascii hex/base64 fingerprint formats to binary
@@ -107,6 +107,7 @@ start_ets() ->
         ets:new(esaml_privkey_cache, [set, public, named_table]),
         ets:new(esaml_certbin_cache, [set, public, named_table]),
         ets:new(esaml_idp_meta_cache, [set, public, named_table]),
+        ets:new(esaml_sp_meta_cache, [set, public, named_table]),
         ets_table_owner()
     end)}.
 
@@ -176,11 +177,25 @@ load_metadata(Url) ->
         [{Url, Meta}] -> Meta;
         _ ->
             {ok, {{_Ver, 200, _}, _Headers, Body}} = httpc:request(get, {Url, []}, [{autoredirect, true}], []),
-            {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, true}]),
+            {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
             {ok, Meta = #esaml_idp_metadata{}} = esaml:decode_idp_metadata(Xml),
             ets:insert(esaml_idp_meta_cache, {Url, Meta}),
             Meta
     end.
+
+%% @doc Reads SP metadata from a URL (or ETS memory cache)
+-spec load_sp_metadata(Url :: string()) -> esaml:sp_metadata().
+load_sp_metadata(Url) ->
+    case ets:lookup(esaml_sp_meta_cache, Url) of
+        [{Url, Meta}] -> Meta;
+        _ ->
+            {ok, {{_Ver, 200, _}, _Headers, Body}} = httpc:request(get, {Url, []}, [{autoredirect, true}], []),
+            {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
+            {ok, Meta = #esaml_sp_metadata{}} = esaml:decode_sp_metadata(Xml),
+            ets:insert(esaml_sp_meta_cache, {Url, Meta}),
+            Meta
+    end.
+
 
 %% @doc Checks for a duplicate assertion using ETS tables in memory on all available nodes.
 %%

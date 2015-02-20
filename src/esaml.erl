@@ -18,7 +18,8 @@
 -export([start/2, stop/1, init/1]).
 -export([stale_time/1]).
 -export([config/2, config/1, to_xml/1, decode_response/1, decode_assertion/1, validate_assertion/3]).
--export([decode_logout_request/1, decode_logout_response/1, decode_idp_metadata/1]).
+-export([decode_logout_request/1, decode_logout_response/1, decode_idp_metadata/1, decode_sp_metadata/1]).
+-export([decode_authn_request/1]).
 
 -type org() :: #esaml_org{}.
 -type contact() :: #esaml_contact{}.
@@ -88,6 +89,9 @@ nameid_map(S) when is_list(S) -> unknown.
 subject_method_map("urn:oasis:names:tc:SAML:2.0:cm:bearer") -> bearer;
 subject_method_map(_) -> unknown.
 
+rev_subject_method_map(bearer) -> "urn:oasis:names:tc:SAML:2.0:cm:bearer";
+rev_subject_method_map(_) -> unknown.
+
 -spec status_code_map(string()) -> status_code() | atom().
 status_code_map("urn:oasis:names:tc:SAML:2.0:status:Success") -> success;
 status_code_map("urn:oasis:names:tc:SAML:2.0:status:VersionMismatch") -> bad_version;
@@ -135,6 +139,18 @@ common_attrib_map(Other) when is_list(Other) -> list_to_atom(Other).
 
 -include("xmerl_xpath_macros.hrl").
 
+decode_authn_request(Xml) ->
+    Ns = [{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
+          {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}],
+    esaml_util:threaduntil([
+        ?xpath_attr_required("/samlp:AuthnRequest/@AssertionConsumerServiceURL", esaml_authnreq, consumer_location, missing_consumer_location),
+        ?xpath_attr_required("/samlp:AuthnRequest/@IssueInstant", esaml_authnreq, issue_instant, missing_issue_instant),
+        ?xpath_attr_required("/samlp:AuthnRequest/@ID", esaml_authnreq, id, missing_id),
+        ?xpath_attr_required("/samlp:AuthnRequest/@Version", esaml_authnreq, version, missing_version),
+        ?xpath_attr("/samlp:AuthnRequest/@Destination", esaml_authnreq, destination),
+        ?xpath_text("/samlp:AuthnRequest/saml:Issuer/text()", esaml_authnreq, issuer)
+    ], #esaml_authnreq{}).
+
 %% @private
 -spec decode_idp_metadata(Xml :: #xmlElement{}) -> {ok, #esaml_idp_metadata{}} | {error, term()}.
 decode_idp_metadata(Xml) ->
@@ -154,6 +170,23 @@ decode_idp_metadata(Xml) ->
         ?xpath_recurse("/md:EntityDescriptor/md:ContactPerson[@contactType='technical']", esaml_idp_metadata, tech, decode_contact),
         ?xpath_recurse("/md:EntityDescriptor/md:Organization", esaml_idp_metadata, org, decode_org)
     ], #esaml_idp_metadata{}).
+
+%% @private
+-spec decode_sp_metadata(Xml :: #xmlElement{}) -> {ok, #esaml_sp_metadata{}} | {error, term()}.
+decode_sp_metadata(Xml) ->
+    Ns = [{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
+          {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'},
+          {"md", 'urn:oasis:names:tc:SAML:2.0:metadata'},
+          {"ds", 'http://www.w3.org/2000/09/xmldsig#'}],
+    esaml_util:threaduntil([
+        ?xpath_attr_required("/md:EntityDescriptor/@entityID", esaml_sp_metadata, entity_id, bad_entity),
+        ?xpath_attr("/md:EntityDescriptor/md:SPSSODescriptor/md:SingleLogoutService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location",
+            esaml_sp_metadata, logout_location),
+        ?xpath_text("/md:EntityDescriptor/md:SPSSODescriptor/md:KeyDescriptor[@use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()", esaml_sp_metadata, certificate, fun(X) -> base64:decode(list_to_binary(X)) end),
+        ?xpath_recurse("/md:EntityDescriptor/md:ContactPerson[@contactType='technical']", esaml_sp_metadata, tech, decode_contact),
+        ?xpath_recurse("/md:EntityDescriptor/md:Organization", esaml_sp_metadata, org, decode_org)
+    ], #esaml_sp_metadata{}).
+
 
 %% @private
 -spec decode_org(Xml :: #xmlElement{}) -> {ok, #esaml_org{}} | {error, term()}.
@@ -188,6 +221,7 @@ decode_logout_request(Xml) ->
         ?xpath_attr_required("/samlp:LogoutRequest/@Version", esaml_logoutreq, version, bad_version),
         ?xpath_attr_required("/samlp:LogoutRequest/@IssueInstant", esaml_logoutreq, issue_instant, bad_response),
         ?xpath_text_required("/samlp:LogoutRequest/saml:NameID/text()", esaml_logoutreq, name, bad_name),
+        ?xpath_attr("/samlp:LogoutRequest/@ID", esaml_logoutreq, id),
         ?xpath_attr("/samlp:LogoutRequest/@Destination", esaml_logoutreq, destination),
         ?xpath_attr("/samlp:LogoutRequest/@Reason", esaml_logoutreq, reason, fun logout_reason_map/1),
         ?xpath_text("/samlp:LogoutRequest/saml:Issuer/text()", esaml_logoutreq, issuer)
@@ -526,6 +560,216 @@ to_xml(#esaml_sp_metadata{org = #esaml_org{name = OrgName, displayname = OrgDisp
             MdContact
         ]
     });
+
+to_xml(#esaml_idp_metadata{org = #esaml_org{name = OrgName, displayname = OrgDisplayName,
+                                           url = OrgUrl },
+                       tech = #esaml_contact{name = TechName, email = TechEmail},
+                       signed_requests = SignReq,
+                       certificate = CertBin, cert_chain = CertChain, entity_id = EntityID,
+                       login_location = SSOLoc,
+                       logout_location = SLOLoc
+                       }) ->
+    Ns = #xmlNamespace{nodes = [{"md", 'urn:oasis:names:tc:SAML:2.0:metadata'},
+                                {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'},
+                                {"dsig", 'http://www.w3.org/2000/09/xmldsig#'},
+                                {"xml", 'http://www.w3.org/XML/1998/namespace'}]},
+
+    MdOrg = #xmlElement{name = 'md:Organization',
+        content =
+            lang_elems(#xmlElement{name = 'md:OrganizationName'}, OrgName) ++
+            lang_elems(#xmlElement{name = 'md:OrganizationDisplayName'}, OrgDisplayName) ++
+            lang_elems(#xmlElement{name = 'md:OrganizationURL'}, OrgUrl)
+    },
+
+    MdContact = #xmlElement{name = 'md:ContactPerson',
+        attributes = [#xmlAttribute{name = 'contactType', value = "technical"}],
+        content = [
+            #xmlElement{name = 'md:SurName', content = [#xmlText{value = TechName}]},
+            #xmlElement{name = 'md:EmailAddress', content = [#xmlText{value = TechEmail}]}
+        ]
+    },
+
+    KeyDesc = case CertBin of
+        undefined -> [];
+        C when is_binary(C) ->
+            [#xmlElement{name = 'md:KeyDescriptor',
+                attributes = [#xmlAttribute{name = 'use', value = "signing"}],
+                content = [#xmlElement{name = 'dsig:KeyInfo',
+                    content = [#xmlElement{name = 'dsig:X509Data',
+                        content =
+                                [#xmlElement{name = 'dsig:X509Certificate',
+                            content = [#xmlText{value = base64:encode_to_string(CertBin)}]} | 
+                                [#xmlElement{name = 'dsig:X509Certificate',
+                            content = [#xmlText{value = base64:encode_to_string(CertChainBin)}]} || CertChainBin <- CertChain]]}]}]}]
+    end,
+
+    IdpSso0 = #xmlElement{name = 'md:IDPSSODescriptor',
+        attributes = [#xmlAttribute{name = 'protocolSupportEnumeration', value = "urn:oasis:names:tc:SAML:2.0:protocol"},
+                      #xmlAttribute{name = 'AuthnRequestsSigned', value = atom_to_list(SignReq)}],
+        content = KeyDesc ++ [
+            #xmlElement{name = 'md:ArtifactResolutionService',
+                attributes = [#xmlAttribute{name = 'isDefault', value = "true"},
+                              #xmlAttribute{name = 'index', value = "0"},
+                              #xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:SOAP"},
+                              #xmlAttribute{name = 'Location', value = ""}]}]},
+
+    IdpSso1 = case SLOLoc of
+        undefined -> IdpSso0;
+        _ ->
+            IdpSso0#xmlElement{content = IdpSso0#xmlElement.content ++ [
+                #xmlElement{name = 'md:SingleLogoutService',
+                    attributes = [#xmlAttribute{name = isDefault, value = "true"},
+                                  #xmlAttribute{name = index, value = "0"},
+                                  #xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-REDIRECT"},
+                                  #xmlAttribute{name = 'Location', value = SLOLoc}]},
+                #xmlElement{name = 'md:SingleLogoutService',
+                    attributes = [#xmlAttribute{name = index, value = "1"},
+                                  #xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"},
+                                  #xmlAttribute{name = 'Location', value = SLOLoc}]}
+            ]}
+    end,
+
+    IdpSso = case SSOLoc of
+        undefined -> IdpSso1;
+        _ ->
+            IdpSso1#xmlElement{content = IdpSso1#xmlElement.content ++ [
+                #xmlElement{name = 'md:SingleSignOnService',
+                    attributes = [#xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-REDIRECT"},
+                                  #xmlAttribute{name = 'Location', value = SSOLoc}]},
+                #xmlElement{name = 'md:SingleSignOnService',
+                    attributes = [#xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"},
+                                  #xmlAttribute{name = 'Location', value = SSOLoc}]}
+            ]}
+    end,
+
+
+    esaml_util:build_nsinfo(Ns, #xmlElement{
+        name = 'md:EntityDescriptor',
+        attributes = [
+            #xmlAttribute{name = 'xmlns:md', value = atom_to_list(proplists:get_value("md", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:dsig', value = atom_to_list(proplists:get_value("dsig", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'entityID', value = EntityID}
+        ], content = [
+            IdpSso,
+            MdOrg,
+            MdContact
+        ]
+    });
+to_xml(#esaml_subject{name=Name, confirmation_method=ConfirmMethod, notonorafter=Expiry, recipient=Recipient, authn_req_id=InResponseTo}) ->
+    Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
+
+    NameID = #xmlElement{name='saml:NameID',
+                         attributes = [#xmlAttribute{name='Format', value="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"}],
+                         content=[#xmlText{value=Name}]},
+
+    SubjectConfirmationData = #xmlElement{name='saml:SubjectConfirmationData',
+                                          attributes = [
+                                              #xmlAttribute{name='InResponseTo', value=InResponseTo},
+                                              #xmlAttribute{name='Recipient', value=Recipient},
+                                              #xmlAttribute{name='NotOnOrAfter', value=Expiry}]},
+    SubjectConfirmation = #xmlElement{name='saml:SubjectConfirmation',
+                                      attributes = [
+                                          #xmlAttribute{name='Method', value=rev_subject_method_map(ConfirmMethod)}],
+                                      content = [ SubjectConfirmationData ]},
+
+    esaml_util:build_nsinfo(Ns, #xmlElement{
+        name = 'saml:Subject',
+        attributes = [
+            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))}
+        ], content = [
+            NameID,
+            SubjectConfirmation
+        ]
+    });
+to_xml(#esaml_authn_statement{issue_instant=IssueInstant, session_index=SessionIndex, context_class=Class}) ->
+    Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
+
+    AuthnClassRef = #xmlElement{name='saml:AuthnContextClassRef',
+                                content=[#xmlText{value=Class}]},
+
+    AuthnContext = #xmlElement{name='saml:AuthnContext',
+                               content=[AuthnClassRef]},
+
+    esaml_util:build_nsinfo(Ns, #xmlElement{
+        name='saml:AuthnStatement',
+        attributes = [
+            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'AuthnInstant', value = IssueInstant},
+            #xmlAttribute{name = 'SessionIndex', value = SessionIndex}],
+        content = [
+            AuthnContext
+        ]
+    });
+to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issue_instant=IssueInstant}) ->
+    Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
+
+    Issuer = #xmlElement{name = 'saml:Issuer',
+                         content = [#xmlText{value=IssuerUri}]},
+
+    % TODO: Signature
+
+    Subject = to_xml(Assertion#esaml_assertion.subject),
+    Conditions = [ to_xml(Cond) || Cond <- Assertion#esaml_assertion.conditions ],
+
+    AuthnStatement = to_xml(Assertion#esaml_assertion.statement),
+
+    Attributes = [ #xmlElement{name = 'saml:Attribute',
+                               attributes = [ #xmlAttribute{name = 'Name', value = Key} ],
+                               content = [ #xmlElement{name='saml:AttributeValue',
+                                                       content = [#xmlText{value=Value}]} ]}
+                   || {Key, Value} <- Assertion#esaml_assertion.attributes ],
+
+    AttributeStatement = #xmlElement{name = 'saml:AttributeStatement',
+                                     content = Attributes},
+
+    esaml_util:build_nsinfo(Ns, #xmlElement{
+        name = 'saml:Assertion',
+        attributes = [
+            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'ID', value = ID},
+            #xmlAttribute{name = 'Version', value = Version},
+            #xmlAttribute{name = 'IssueInstant', value = IssueInstant}
+        ], content = [
+            Issuer,
+            Subject,
+            AuthnStatement,
+            AttributeStatement
+        ] ++ Conditions
+    });
+to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=IssueInstant, destination=Destination}) ->
+    Ns = #xmlNamespace{nodes=[{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
+          {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
+
+    Issuer = #xmlElement{name = 'saml:Issuer',
+                         content = [#xmlText{value=Response#esaml_response.issuer}]},
+
+    Status = #xmlElement{name = 'samlp:Status',
+                         content=[#xmlElement{name='samlp:StatusCode',
+                                              attributes=[#xmlAttribute{name='Value', value=rev_status_code_map(Response#esaml_response.status)}]}]},
+    Assertion = to_xml(Response#esaml_response.assertion),
+    esaml_util:build_nsinfo(Ns, #xmlElement{
+        name = 'samlp:Response',
+        attributes = [
+            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:samlp', value = atom_to_list(proplists:get_value("samlp", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))},
+            #xmlAttribute{name = 'ID', value = ID},
+            #xmlAttribute{name = 'Version', value = "2.0"},
+            #xmlAttribute{name = 'InResponseTo', value = RequestID},
+            #xmlAttribute{name = 'Destination', value = Destination},
+            #xmlAttribute{name = 'IssueInstant', value = IssueInstant}
+        ], content = [
+            Issuer,
+            Status,
+            Assertion
+        ]
+    });
+
+
 
 to_xml(_) -> error("unknown record").
 

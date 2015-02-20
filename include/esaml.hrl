@@ -35,12 +35,14 @@
 	tech = #esaml_contact{} :: esaml:contact(),
 	signed_requests = true :: boolean(),
 	certificate :: binary() | undefined,
+        cert_chain = [] :: [binary()],
 	entity_id = "" :: string(),
 	login_location = "" :: string(),
 	logout_location :: string() | undefined,
 	name_format = unknown :: esaml:name_format()}).
 
 -record(esaml_authnreq, {
+        id = "" :: string(),
 	version = "2.0" :: esaml:version(),
 	issue_instant = "" :: esaml:datetime(),
 	destination = "" :: string(),
@@ -50,18 +52,29 @@
 -record(esaml_subject, {
 	name = "" :: string(),
 	confirmation_method = bearer :: atom(),
+        authn_req_id,
+        recipient,
 	notonorafter = "" :: esaml:datetime()}).
 
+-record(esaml_authn_statement, {
+        issue_instant,
+        session_index,
+        context_class
+        }).
+
 -record(esaml_assertion, {
+        id = "" :: string(),
 	version = "2.0" :: esaml:version(),
 	issue_instant = "" :: esaml:datetime(),
 	recipient = "" :: string(),
 	issuer = "" :: string(),
 	subject = #esaml_subject{} :: esaml:subject(),
+        statement,
 	conditions = [] :: esaml:conditions(),
 	attributes = [] :: proplists:proplist()}).
 
 -record(esaml_logoutreq, {
+        id :: string(),
 	version = "2.0" :: esaml:version(),
 	issue_instant = "" :: esaml:datetime(),
 	destination = "" :: string(),
@@ -70,6 +83,7 @@
 	reason = user :: esaml:logout_reason()}).
 
 -record(esaml_logoutresp, {
+        request_id :: string(),
 	version = "2.0" :: esaml:version(),
 	issue_instant = "" :: esaml:datetime(),
 	destination = "" :: string(),
@@ -77,6 +91,8 @@
 	status = unknown :: esaml:status_code()}).
 
 -record(esaml_response, {
+        id = "" :: string(),
+        request_id = "" :: string(),
 	version = "2.0" :: esaml:version(),
 	issue_instant = "" :: esaml:datetime(),
 	destination = "" :: string(),
@@ -101,3 +117,14 @@
 	metadata_uri = "" :: string(),
 	consume_uri = "" :: string(),
 	logout_uri :: string() | undefined}).
+
+-record(esaml_idp, {
+         org = #esaml_org{} :: esaml:org(),
+         tech = #esaml_contact{} :: esaml:contact(),
+         key :: #'RSAPrivateKey'{} | undefined,
+         certificate :: binary() | undefined,
+         cert_chain = [] :: [binary()],
+         metadata_uri = "" :: string(),
+         artifact_resolution_uri = "" :: string(),
+         login_uri = "" :: string(),
+         logout_uri = "" :: string()}).

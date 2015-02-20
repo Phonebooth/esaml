@@ -9,7 +9,7 @@
 %% @doc SAML HTTP binding handlers
 -module(esaml_binding).
 
--export([decode_response/2, encode_http_redirect/3, encode_http_post/3]).
+-export([decode_request/2, decode_response/2, encode_http_redirect/3, encode_http_post/3]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -define(deflate, <<"urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE">>).
@@ -34,6 +34,9 @@ xml_payload_type(Xml) ->
             end;
         _ -> <<"SAMLRequest">>
     end.
+
+decode_request(Encoding, Request) ->
+    decode_response(Encoding, Request).
 
 %% @doc Unpack and parse a SAMLResponse with given encoding
 -spec decode_response(SAMLEncoding :: binary(), SAMLResponse :: binary()) -> #xmlDocument{}.

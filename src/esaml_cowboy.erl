@@ -18,6 +18,7 @@
 
 -export([reply_with_authnreq/4, reply_with_metadata/2, reply_with_logoutreq/4, reply_with_logoutresp/5]).
 -export([validate_assertion/2, validate_assertion/3, validate_logout/2]).
+-export([reply_with_authnresp/4]).
 
 -type uri() :: string().
 
@@ -30,6 +31,15 @@
 reply_with_authnreq(SP, IDP, RelayState, Req) ->
     SignedXml = SP:generate_authn_request(IDP),
     reply_with_req(IDP, SignedXml, RelayState, Req).
+
+%% @doc Reply to a Cowboy request with an AuthnResponse payload
+%%
+%% RelayState is an arbitrary blob up to 80 bytes long that will
+%% be returned verbatim with any assertion that results from this
+%% AuthnResponse.
+reply_with_authnresp(IDP, AuthnReq, RelayState, Req) ->
+    SignedXml = IDP:generate_authn_response(AuthnReq),
+    reply_with_req(AuthnReq#esaml_authnreq.consumer_location, SignedXml, RelayState, Req).
 
 %% @doc Reply to a Cowboy request with a LogoutRequest payload
 %%
@@ -48,6 +58,7 @@ reply_with_logoutreq(SP, IDP, NameID, Req) ->
 reply_with_logoutresp(SP, IDP, Status, RelayState, Req) ->
     SignedXml = SP:generate_logout_response(IDP, Status),
     reply_with_req(IDP, SignedXml, RelayState, Req).
+
 
 %% @private
 reply_with_req(IDP, SignedXml, RelayState, Req) ->
