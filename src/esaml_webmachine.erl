@@ -17,7 +17,7 @@
 -include("esaml.hrl").
 
 -export([reply_with_authnreq/5, reply_with_metadata/3, reply_with_logoutreq/5, reply_with_logoutresp/6]).
--export([validate_assertion/2, validate_assertion/3, validate_logout/2]).
+-export([validate_assertion/2, validate_assertion/3, validate_logout/2, validate_authnreq/2]).
 -export([reply_with_authnresp/5]).
 
 -type uri() :: string().
@@ -86,6 +86,37 @@ reply_with_req(IDP, SignedXml, RelayState, ReqData, Context) ->
         ReqData2 = wrq:set_resp_body("Redirecting...", ReqData1),
         {{halt, 302}, ReqData2, Context}
     end.
+
+%% @doc Validate and parse an authentication request
+-spec validate_authnreq(esaml:idp(), ReqData) -> {esaml:authn_request(), RelayState :: binary(), ReqData} 
+                                                 | {error, Reason :: term(), ReqData}.
+validate_authnreq(IDP, ReqData) ->
+    case wrq:method(ReqData) of
+        'POST' ->
+            PostVals = mochiweb_util:parse_qs(wrq:req_body(ReqData)),
+            SAMLEncoding = proplists:get_value("SAMLEncoding", PostVals),
+            SAMLResponse = proplists:get_value("SAMLResponse", PostVals,
+                proplists:get_value("SAMLRequest", PostVals)),
+            RelayState = proplists:get_value("RelayState", PostVals, <<>>),
+            validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData);
+        'GET' ->
+            SAMLEncoding = wrq:get_qs_val("SAMLEncoding", ReqData),
+            SAMLResponse = wrq:get_qs_val("SAMLResponse", wrq:get_qs_value("SAMLRequest", ReqData), ReqData),
+            RelayState = wrq:get_qs_val("RelayState", <<>>, ReqData),
+            validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData)
+    end.
+
+validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData) ->
+    case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
+        {'EXIT', Reason} ->
+            {error, {bad_decode, Reason}, ReqData};
+        Xml ->
+            case IDP:validate_authn_request(Xml) of
+                {ok, AuthnReq} -> {AuthnReq, RelayState, ReqData};
+                Err -> Err
+            end
+    end.
+
 
 %% @doc Validate and parse a LogoutRequest or LogoutResponse
 %%

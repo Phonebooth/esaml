@@ -121,6 +121,7 @@
 -record(esaml_idp, {
          org = #esaml_org{} :: esaml:org(),
          tech = #esaml_contact{} :: esaml:contact(),
+         trusted_fingerprints = [] :: [string() | binary()],
          key :: #'RSAPrivateKey'{} | undefined,
          certificate :: binary() | undefined,
          cert_chain = [] :: [binary()],
