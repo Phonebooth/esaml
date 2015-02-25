@@ -37,8 +37,8 @@
 	certificate :: binary() | undefined,
         cert_chain = [] :: [binary()],
 	entity_id = "" :: string(),
-	login_location = "" :: string(),
-	logout_location :: string() | undefined,
+	login_bindings :: [esaml:binding()],
+	logout_bindings :: [esaml:binding()] | undefined,
 	name_format = unknown :: esaml:name_format()}).
 
 -record(esaml_authnreq, {
@@ -100,6 +100,10 @@
 	status = unknown :: esaml:status_code(),
 	assertion = #esaml_assertion{} :: esaml:assertion()}).
 
+-record(esaml_binding, {
+        type :: http_redirect | http_post,
+        uri :: string()}).
+
 %% state records
 
 -record(esaml_sp, {
@@ -127,6 +131,6 @@
          certificate :: binary() | undefined,
          cert_chain = [] :: [binary()],
          metadata_uri = "" :: string(),
-         artifact_resolution_uri = "" :: string(),
-         login_uri = "" :: string(),
-         logout_uri = "" :: string()}).
+         artifact_resolution :: [esaml:binding()],
+         login_service :: [esaml:binding()],
+         logout_service :: [esaml:binding()]}).

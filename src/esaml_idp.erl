@@ -14,8 +14,8 @@ generate_metadata(IDP = #esaml_idp{org = Org, tech = Tech}) ->
        cert_chain = IDP#esaml_idp.cert_chain,
        entity_id = IDP#esaml_idp.metadata_uri,
        signed_requests = IDP#esaml_idp.sp_sign_requests,
-       login_location = IDP#esaml_idp.login_uri,
-       logout_location = IDP#esaml_idp.logout_uri}),
+       login_bindings = IDP#esaml_idp.login_service,
+       logout_bindings = IDP#esaml_idp.logout_service}),
     xmerl_dsig:sign(Xml, IDP#esaml_idp.key, IDP#esaml_idp.certificate).
 
 generate_authn_response(AuthnReq = #esaml_authnreq{consumer_location=ACSUrl}, Assertion=#esaml_assertion{}, IDP = #esaml_idp{metadata_uri=IDPUri}) ->

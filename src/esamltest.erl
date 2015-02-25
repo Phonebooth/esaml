@@ -49,13 +49,15 @@ idp1() ->
     % We build all of our URLs (in metadata, and in requests) based on this
     Base = "https://auth.republicdev.info/saml",
 
+    LoginUri = Base ++ "/login",
+    LogoutUri = Base ++ "/logout",
+
     #esaml_idp{
         key = PrivKey,
         certificate = Cert,
-        artifact_resolution_uri = Base ++ "/artifact_resolution",
-        login_uri = Base ++ "/login",
+        login_service = [#esaml_binding{uri=LoginUri, type=http_redirect}, #esaml_binding{uri=LoginUri, type=http_post}],
         metadata_uri = Base ++ "/metadata",
-        logout_uri = Base ++ "/logout",
+        logout_service = [#esaml_binding{uri=LogoutUri, type=http_redirect}],
         org = #esaml_org{
             % example of multi-lingual data -- only works in #esaml_org{}
             name = [{en, "Foo Bar"}, {de, "Das Foo Bar"}],

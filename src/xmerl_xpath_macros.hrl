@@ -50,6 +50,18 @@
         end
     end).
 
+-define(xpath_list_recurse(XPath, Record, Field, F),
+    fun(Resp) ->
+        Nodes = xmerl_xpath:string(XPath, Xml, [{namespace, Ns}]),
+        List = lists:foldl(fun (E, Acc) ->
+                                   case F(E) of
+                                       {error, V} -> {error, V};
+                                       {ok, V} -> [V | Acc]
+                                   end
+                           end, [], Nodes),
+        Resp#Record{Field = List}
+    end).
+
 -define(xpath_recurse(XPath, Record, Field, F),
     fun(Resp) ->
         case xmerl_xpath:string(XPath, Xml, [{namespace, Ns}]) of
