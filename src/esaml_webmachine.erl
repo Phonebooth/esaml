@@ -18,7 +18,7 @@
 
 -export([reply_with_authnreq/5, reply_with_metadata/3, reply_with_logoutreq/5, reply_with_logoutresp/6]).
 -export([validate_assertion/2, validate_assertion/3, validate_logout/2, validate_authnreq/2]).
--export([reply_with_authnresp/5]).
+-export([reply_with_authnresp/6]).
 
 -type uri() :: string().
 
@@ -37,8 +37,8 @@ reply_with_authnreq(SP, IDP, RelayState, ReqData, Context) ->
 %% RelayState is an arbitrary blob up to 80 bytes long that will
 %% be returned verbatim with any assertion that results from this
 %% AuthnResponse.
-reply_with_authnresp(IDP, AuthnReq, RelayState, ReqData, Context) ->
-    SignedXml = IDP:generate_authn_response(AuthnReq),
+reply_with_authnresp(IDP, AuthnReq, Assertion, RelayState, ReqData, Context) ->
+    SignedXml = IDP:generate_authn_response(AuthnReq, Assertion),
     reply_with_req(AuthnReq#esaml_authnreq.consumer_location, SignedXml, RelayState, ReqData, Context).
 
 %% @doc Reply to a Webmachine request with a LogoutRequest payload
@@ -100,9 +100,9 @@ validate_authnreq(IDP, ReqData) ->
             RelayState = proplists:get_value("RelayState", PostVals, <<>>),
             validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData);
         'GET' ->
-            SAMLEncoding = wrq:get_qs_val("SAMLEncoding", ReqData),
-            SAMLResponse = wrq:get_qs_val("SAMLResponse", wrq:get_qs_value("SAMLRequest", ReqData), ReqData),
-            RelayState = wrq:get_qs_val("RelayState", <<>>, ReqData),
+            SAMLEncoding = wrq:get_qs_value("SAMLEncoding", ReqData),
+            SAMLResponse = wrq:get_qs_value("SAMLResponse", wrq:get_qs_value("SAMLRequest", ReqData), ReqData),
+            RelayState = wrq:get_qs_value("RelayState", <<>>, ReqData),
             validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData)
     end.
 
