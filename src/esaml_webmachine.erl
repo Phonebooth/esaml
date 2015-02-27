@@ -121,7 +121,7 @@ validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData) ->
 %% @doc Validate and parse a LogoutRequest or LogoutResponse
 %%
 %% This function handles both REDIRECT and POST bindings.
--spec validate_logout(esaml:sp(), ReqData) ->
+-spec validate_logout(esaml:provider(), ReqData) ->
         {request, esaml:logoutreq(), RelayState::binary(), ReqData} |
         {response, esaml:logoutresp(), RelayState::binary(), ReqData} |
         {error, Reason :: term(), ReqData}.

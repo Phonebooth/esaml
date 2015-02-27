@@ -33,6 +33,7 @@
 -type response() :: #esaml_response{}.
 -type sp() :: #esaml_sp{}.
 -type idp() :: #esaml_idp{}.
+-type provider() :: #esaml_sp{} | #esaml_idp{}.
 -type binding() :: #esaml_binding{}.
 -type saml_record() :: org() | contact() | sp_metadata() | idp_metadata() | authnreq() | subject() | assertion() | logoutreq() | logoutresp() | response() | binding().
 
