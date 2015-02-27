@@ -5,7 +5,7 @@
 -include_lib("xmerl/include/xmerl.hrl").
 
 -type xml() :: #xmlElement{} | #xmlDocument{}.
--export([generate_metadata/1, generate_authn_response/3, generate_logout_response/3, validate_authn_request/2]).
+-export([generate_metadata/1, generate_authn_response/3, generate_logout_response/3, validate_authn_request/2, validate_logout_request/2, validate_logout_response/2]).
 
 generate_metadata(IDP = #esaml_idp{org = Org, tech = Tech}) ->
     Xml = esaml:to_xml(#esaml_idp_metadata{
@@ -23,6 +23,7 @@ generate_authn_response(AuthnReq = #esaml_authnreq{consumer_location=ACSUrl}, As
     Now = erlang:localtime_to_universaltime(erlang:localtime()),
     Stamp = esaml_util:datetime_to_saml(Now),
     Xml = esaml:to_xml(#esaml_response{
+                  id = uuid:to_string(uuid:uuid4()),
                   request_id = AuthnReq#esaml_authnreq.id,
                   issue_instant = Stamp,
                   destination = ACSUrl,

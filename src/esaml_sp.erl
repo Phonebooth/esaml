@@ -32,18 +32,32 @@ add_xml_id(Xml) ->
 
 %% @doc Return an AuthnRequest as an XML element
 -spec generate_authn_request(IdpURL :: string(), esaml:sp()) -> #xmlElement{}.
-generate_authn_request(IdpURL, SP = #esaml_sp{metadata_uri = MetaURI, consume_uri = ConsumeURI}) ->
+generate_authn_request(IdpURL, SP = #esaml_sp{metadata_uri = MetaURI, consume_service = ConsumeService}) ->
     Now = erlang:localtime_to_universaltime(erlang:localtime()),
     Stamp = esaml_util:datetime_to_saml(Now),
+    SelectedBinding = select_service(ConsumeService),
 
     Xml = esaml:to_xml(#esaml_authnreq{issue_instant = Stamp,
                                        destination = IdpURL,
                                        issuer = MetaURI,
-                                       consumer_location = ConsumeURI}),
+                                       consumer_location = SelectedBinding}),
     if SP#esaml_sp.sp_sign_requests ->
         xmerl_dsig:sign(Xml, SP#esaml_sp.key, SP#esaml_sp.certificate);
     true ->
         add_xml_id(Xml)
+    end.
+
+select_service(BindingList) ->
+    case lists:keyfind(http_post, #esaml_binding.type, BindingList) of
+        false ->
+            case lists:keyfind(http_redirect, #esaml_binding.type, BindingList) of
+                false ->
+                    undefined;
+                Result ->
+                    Result
+            end;
+        Result ->
+            Result
     end.
 
 %% @doc Return a LogoutRequest as an XML element
@@ -89,8 +103,8 @@ generate_metadata(SP = #esaml_sp{org = Org, tech = Tech}) ->
         signed_assertions = SP#esaml_sp.idp_signs_assertions or SP#esaml_sp.idp_signs_envelopes,
         certificate = SP#esaml_sp.certificate,
         cert_chain = SP#esaml_sp.cert_chain,
-        consumer_location = SP#esaml_sp.consume_uri,
-        logout_location = SP#esaml_sp.logout_uri,
+        consumer_bindings = SP#esaml_sp.consume_service,
+        logout_bindings = SP#esaml_sp.logout_service,
         entity_id = SP#esaml_sp.metadata_uri}),
     if SP#esaml_sp.sp_sign_metadata ->
         xmerl_dsig:sign(Xml, SP#esaml_sp.key, SP#esaml_sp.certificate);
@@ -101,10 +115,10 @@ generate_metadata(SP = #esaml_sp{org = Org, tech = Tech}) ->
 %% @doc Initialize and validate an esaml_sp record
 -spec setup(esaml:sp()) -> esaml:sp().
 setup(SP = #esaml_sp{trusted_fingerprints = FPs, metadata_uri = MetaURI,
-                     consume_uri = ConsumeURI}) ->
+                     consume_service = ConsumeService}) ->
     Fingerprints = esaml_util:convert_fingerprints(FPs),
     case MetaURI of "" -> error("must specify metadata URI"); _ -> ok end,
-    case ConsumeURI of "" -> error("must specify consume URI"); _ -> ok end,
+    case ConsumeService of [] -> error("must specify consume service"); _ -> ok end,
     if (SP#esaml_sp.key =:= undefined) andalso (SP#esaml_sp.sp_sign_requests) ->
         error("must specify a key to sign requests");
     true -> ok
@@ -223,10 +237,10 @@ validate_assertion(Xml, DuplicateFun, SP = #esaml_sp{}) ->
             end
         end,
         fun(A) ->
-            case esaml:validate_assertion(A, SP#esaml_sp.consume_uri, SP#esaml_sp.metadata_uri) of
-                {ok, AR} -> AR;
-                {error, Reason} -> {error, Reason}
-            end
+            esaml_util:folduntil(fun (#esaml_binding{uri=_}, {ok, Result}) -> {stop, Result};
+                                     (#esaml_binding{uri=Recipient}, _) ->
+                                         esaml:validate_assertion(A, Recipient, SP#esaml_sp.metadata_uri)
+                                 end)
         end,
         fun(AR) ->
             case DuplicateFun(AR, xmerl_dsig:digest(Xml)) of

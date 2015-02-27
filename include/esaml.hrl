@@ -27,8 +27,8 @@
 	certificate :: binary() | undefined,
 	cert_chain = [] :: [binary()],
 	entity_id = "" :: string(),
-	consumer_location = "" :: string(),
-	logout_location :: string() | undefined}).
+	consumer_bindings = [] :: [esaml:binding()],
+	logout_bindings = [] :: [esaml:binding()]}).
 
 -record(esaml_idp_metadata, {
 	org = #esaml_org{} :: esaml:org(),
@@ -119,8 +119,8 @@
 	sp_sign_metadata = false :: boolean(),
 	trusted_fingerprints = [] :: [string() | binary()],
 	metadata_uri = "" :: string(),
-	consume_uri = "" :: string(),
-	logout_uri :: string() | undefined}).
+	consume_service :: [esaml:binding()],
+	logout_service :: [esaml:binding()]}).
 
 -record(esaml_idp, {
          org = #esaml_org{} :: esaml:org(),

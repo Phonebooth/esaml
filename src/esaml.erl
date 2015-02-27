@@ -201,8 +201,10 @@ decode_sp_metadata(Xml) ->
           {"ds", 'http://www.w3.org/2000/09/xmldsig#'}],
     esaml_util:threaduntil([
         ?xpath_attr_required("/md:EntityDescriptor/@entityID", esaml_sp_metadata, entity_id, bad_entity),
-        ?xpath_attr("/md:EntityDescriptor/md:SPSSODescriptor/md:SingleLogoutService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location",
-            esaml_sp_metadata, logout_location),
+        ?xpath_list_recurse("/md:EntityDescriptor/md:SPSSODescriptor/md:AssertionConsumerService",
+            esaml_sp_metadata, consumer_bindings, decode_binding),
+        ?xpath_list_recurse("/md:EntityDescriptor/md:SPSSODescriptor/md:SingleLogoutService",
+            esaml_sp_metadata, logout_bindings, decode_binding),
         ?xpath_text("/md:EntityDescriptor/md:SPSSODescriptor/md:KeyDescriptor[@use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()", esaml_sp_metadata, certificate, fun(X) -> base64:decode(list_to_binary(X)) end),
         ?xpath_recurse("/md:EntityDescriptor/md:ContactPerson[@contactType='technical']", esaml_sp_metadata, tech, decode_contact),
         ?xpath_recurse("/md:EntityDescriptor/md:Organization", esaml_sp_metadata, org, decode_org)
@@ -511,8 +513,8 @@ to_xml(#esaml_sp_metadata{org = #esaml_org{name = OrgName, displayname = OrgDisp
                        tech = #esaml_contact{name = TechName, email = TechEmail},
                        signed_requests = SignReq, signed_assertions = SignAss,
                        certificate = CertBin, cert_chain = CertChain, entity_id = EntityID,
-                       consumer_location = ConsumerLoc,
-                       logout_location = SLOLoc
+                       consumer_bindings = ConsumerServices,
+                       logout_bindings = SLOServices
                        }) ->
     Ns = #xmlNamespace{nodes = [{"md", 'urn:oasis:names:tc:SAML:2.0:metadata'},
                                 {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'},
@@ -551,31 +553,12 @@ to_xml(#esaml_sp_metadata{org = #esaml_org{name = OrgName, displayname = OrgDisp
         attributes = [#xmlAttribute{name = 'protocolSupportEnumeration', value = "urn:oasis:names:tc:SAML:2.0:protocol"},
                       #xmlAttribute{name = 'AuthnRequestsSigned', value = atom_to_list(SignReq)},
                       #xmlAttribute{name = 'WantAssertionsSigned', value = atom_to_list(SignAss)}],
-        content = KeyDesc ++ [
-            #xmlElement{name = 'md:AssertionConsumerService',
-                attributes = [#xmlAttribute{name = 'isDefault', value = "true"},
-                              #xmlAttribute{name = 'index', value = "0"},
-                              #xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"},
-                              #xmlAttribute{name = 'Location', value = ConsumerLoc}]},
-            #xmlElement{name = 'md:AttributeConsumingService',
-                attributes = [#xmlAttribute{name = 'isDefault', value = "true"},
-                              #xmlAttribute{name = 'index', value = "0"}],
-                content = [#xmlElement{name = 'md:ServiceName', content = [#xmlText{value = "SAML SP"}]}]}]},
+        content = KeyDesc ++ build_indexed_endpoint_list(ConsumerServices, 'md:AssertionConsumerService')},
 
-    SpSso = case SLOLoc of
+    SpSso = case SLOServices of
         undefined -> SpSso0;
         _ ->
-            SpSso0#xmlElement{content = SpSso0#xmlElement.content ++ [
-                #xmlElement{name = 'md:SingleLogoutService',
-                    attributes = [#xmlAttribute{name = isDefault, value = "true"},
-                                  #xmlAttribute{name = index, value = "0"},
-                                  #xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-REDIRECT"},
-                                  #xmlAttribute{name = 'Location', value = SLOLoc}]},
-                #xmlElement{name = 'md:SingleLogoutService',
-                    attributes = [#xmlAttribute{name = index, value = "1"},
-                                  #xmlAttribute{name = 'Binding', value = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"},
-                                  #xmlAttribute{name = 'Location', value = SLOLoc}]}
-            ]}
+            SpSso0#xmlElement{content = SpSso0#xmlElement.content ++ build_indexed_endpoint_list(SLOServices, 'md:SingleLogoutService')}
     end,
 
     esaml_util:build_nsinfo(Ns, #xmlElement{
@@ -695,8 +678,7 @@ to_xml(#esaml_subject{name=Name, confirmation_method=ConfirmMethod, notonorafter
     esaml_util:build_nsinfo(Ns, #xmlElement{
         name = 'saml:Subject',
         attributes = [
-            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
-            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))}
+            #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))}
         ], content = [
             NameID,
             SubjectConfirmation
@@ -747,7 +729,6 @@ to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issu
         name = 'saml:Assertion',
         attributes = [
             #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
-            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))},
             #xmlAttribute{name = 'ID', value = ID},
             #xmlAttribute{name = 'Version', value = Version},
             #xmlAttribute{name = 'IssueInstant', value = IssueInstant}
@@ -774,7 +755,6 @@ to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=Issue
         attributes = [
             #xmlAttribute{name = 'xmlns:saml', value = atom_to_list(proplists:get_value("saml", Ns#xmlNamespace.nodes))},
             #xmlAttribute{name = 'xmlns:samlp', value = atom_to_list(proplists:get_value("samlp", Ns#xmlNamespace.nodes))},
-            #xmlAttribute{name = 'xmlns:xml', value = atom_to_list(proplists:get_value("xml", Ns#xmlNamespace.nodes))},
             #xmlAttribute{name = 'ID', value = ID},
             #xmlAttribute{name = 'Version', value = "2.0"},
             #xmlAttribute{name = 'InResponseTo', value = RequestID},
@@ -790,6 +770,19 @@ to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=Issue
 
 
 to_xml(_) -> error("unknown record").
+
+build_indexed_endpoint_list(List, ElementName) ->
+    build_indexed_endpoint_list(List, ElementName, 0, []).
+
+build_indexed_endpoint_list([], _, _, Result) ->
+    lists:reverse(Result);
+build_indexed_endpoint_list([ F | R ], ElementName, Counter, Result) ->
+    E = #xmlElement{name = ElementName,
+                    attributes = [#xmlAttribute{name = 'Binding', value = rev_binding_map(F#esaml_binding.type)},
+                                  #xmlAttribute{name = 'index', value = Counter+1},
+                                  #xmlAttribute{name = 'Location', value = F#esaml_binding.uri}]},
+    build_indexed_endpoint_list(R, ElementName, Counter+1, [E | Result]).
+
 
 
 -ifdef(TEST).

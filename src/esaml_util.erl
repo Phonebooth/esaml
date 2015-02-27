@@ -17,7 +17,7 @@
 -export([start_ets/0, check_dupe_ets/2]).
 -export([folduntil/3, thread/2, threaduntil/2]).
 -export([build_nsinfo/2]).
--export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1, load_sp_metadata/1]).
+-export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1, load_sp_metadata/1, load_sp_metadata/2]).
 -export([convert_fingerprints/1]).
 
 %% @doc Converts various ascii hex/base64 fingerprint formats to binary
@@ -191,10 +191,13 @@ load_sp_metadata(Url) ->
         _ ->
             {ok, {{_Ver, 200, _}, _Headers, Body}} = httpc:request(get, {Url, []}, [{autoredirect, true}], []),
             {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
-            {ok, Meta = #esaml_sp_metadata{}} = esaml:decode_sp_metadata(Xml),
-            ets:insert(esaml_sp_meta_cache, {Url, Meta}),
-            Meta
+            load_sp_metadata(Url, Xml)
     end.
+
+load_sp_metadata(Url, Xml) ->
+    {ok, Meta = #esaml_sp_metadata{}} = esaml:decode_sp_metadata(Xml),
+    ets:insert(esaml_sp_meta_cache, {Url, Meta}),
+    Meta.
 
 
 %% @doc Checks for a duplicate assertion using ETS tables in memory on all available nodes.

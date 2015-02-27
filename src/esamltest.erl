@@ -25,11 +25,13 @@ sp1() ->
     % Certificate fingerprints to accept from our IDP
     FPs = ["6b:d1:24:4b:38:cf:6c:1f:4e:53:56:c5:c8:90:63:68:55:5e:27:28"],
 
+    LoginUri = Base ++ "/login",
+
     esaml_sp:setup(#esaml_sp{
         key = PrivKey,
         certificate = Cert,
         trusted_fingerprints = FPs,
-        consume_uri = Base ++ "/consume",
+        consume_service=[#esaml_binding{uri=LoginUri, type=http_redirect}, #esaml_binding{uri=LoginUri, type=http_post}],
         metadata_uri = Base ++ "/metadata",
         org = #esaml_org{
             name = "Foo Bar",
