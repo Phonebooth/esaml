@@ -29,17 +29,23 @@
 %% AuthnRequest.
 -spec reply_with_authnreq(esaml:sp(), IdPSSOEndpoint :: uri(), RelayState :: binary(), ReqData, Context) -> {any(), ReqData, Context}.
 reply_with_authnreq(SP, IDP, RelayState, ReqData, Context) ->
-    SignedXml = SP:generate_authn_request(IDP),
-    reply_with_req(IDP, SignedXml, RelayState, ReqData, Context).
+    AuthnRequest = SP:generate_authn_request(IDP),
+    Binding = AuthnRequest#esaml_authnreq.consumer_location,
+    reply_with_req(Binding, AuthnRequest, RelayState, ReqData, Context).
 
 %% @doc Reply to a Webmachine request with an AuthnResponse payload
 %%
 %% RelayState is an arbitrary blob up to 80 bytes long that will
 %% be returned verbatim with any assertion that results from this
 %% AuthnResponse.
+-spec reply_with_authnresp(esaml:idp(), AuthnReq :: esaml:authnreq(), Assertion :: esaml:assertion(), RelayState :: binary(), ReqData, Context) -> {any(), ReqData, Context}.
 reply_with_authnresp(IDP, AuthnReq, Assertion, RelayState, ReqData, Context) ->
-    SignedXml = IDP:generate_authn_response(AuthnReq, Assertion),
-    reply_with_req(AuthnReq#esaml_authnreq.consumer_location, SignedXml, RelayState, ReqData, Context).
+    case IDP:generate_authn_response(AuthnReq, Assertion) of
+        {error, no_matching_url} ->
+            {{halt, 403}, ReqData, Context};
+        Resp=#esaml_response{destination=Binding} ->
+            reply_with_req(Binding, Resp, IDP, RelayState, ReqData, Context)
+    end.
 
 %% @doc Reply to a Webmachine request with a LogoutRequest payload
 %%
@@ -47,20 +53,64 @@ reply_with_authnresp(IDP, AuthnReq, Assertion, RelayState, ReqData, Context) ->
 %% wish to log out.
 -spec reply_with_logoutreq(esaml:sp(), IdPSLOEndpoint :: uri(), NameID :: string(), ReqData, Context) -> {any(), ReqData, Context}.
 reply_with_logoutreq(SP, IDP, NameID, ReqData, Context) ->
-    SignedXml = SP:generate_logout_request(IDP, NameID),
-    reply_with_req(IDP, SignedXml, <<>>, ReqData, Context).
+    LogoutReq = SP:generate_logout_request(IDP, NameID),
+    %TODO: revisit
+    reply_with_req(#esaml_binding{type=http_redirect, uri=IDP}, LogoutReq, SP, <<>>, ReqData, Context).
 
 %% @doc Reply to a Webmachine request with a LogoutResponse payload
 %%
 %% Be sure to keep the RelayState from the original LogoutRequest that you
 %% received to allow the IdP to keep state.
 -spec reply_with_logoutresp(esaml:sp(), IdPSLOEndpoint :: uri(), esaml:status_code(), RelayState :: binary(), ReqData, Context) -> {any(), ReqData, Context}.
-reply_with_logoutresp(SP, IDP, Status, RelayState, ReqData, Context) ->
-    SignedXml = SP:generate_logout_response(IDP, Status),
-    reply_with_req(IDP, SignedXml, RelayState, ReqData, Context).
+reply_with_logoutresp(SP=#esaml_sp{}, IDP, Status, RelayState, ReqData, Context) ->
+    LogoutResp = SP:generate_logout_response(IDP, Status),
+    %TODO: revisit
+    reply_with_req(#esaml_binding{type=http_redirect, uri=IDP}, LogoutResp, SP, RelayState, ReqData, Context).
+%%
+%% @doc Reply to a Webmachine request with a Metadata payload
+-spec reply_with_metadata(esaml:sp(), ReqData, Context) -> {any(), ReqData, Context}.
+reply_with_metadata(Provider, ReqData, Context) ->
+    Metadata = Provider:generate_metadata(),
+    Payload = esaml_binding:generate_payload(Metadata, Provider),
+    {Payload, wrq:set_resp_headers([{"Content-Type", "text/xml"}], ReqData), Context}.
 
+reply_with_req(Binding=#esaml_binding{}, SAMLRecord, Provider, RelayState, ReqData, Context) ->
+    case Binding:generate_payload(SAMLRecord, Provider) of
+        {error, signed_redirects_unsupport} ->
+            % TODO revisit - give it a try with POST?
+            reply_with_req(Binding#esaml_binding{type=http_post}, SAMLRecord, Provider, RelayState, Context);
+        Payload ->
+            reply_with_req(Binding, Payload, RelayState, ReqData, Context)
+    end.
 
 %% @private
+reply_with_req(B=#esaml_binding{type=http_redirect, uri=URI}, Payload, RelayState, ReqData, Context) ->
+    Target = esaml_binding:encode_http_redirect(URI, Payload, RelayState),
+    UA = wrq:get_req_header("User-Agent", ReqData),
+    IsIE = not (binary:match(list_to_binary(UA), <<"MSIE">>) =:= nomatch),
+    if IsIE andalso (byte_size(Target) > 2042) ->
+        reply_with_req(B#esaml_binding{type=http_post}, Payload, RelayState, ReqData, Context);
+    true ->
+        ReqData1 = wrq:set_resp_headers([
+            {"Cache-Control", "no-cache"},
+            {"Pragma", "no-cache"},
+            {"Location", binary_to_list(Target)}
+        ], ReqData),
+        ReqData2 = wrq:set_resp_body("Redirecting...", ReqData1),
+        {{halt, 302}, ReqData2, Context}
+    end;
+reply_with_req(#esaml_binding{type=http_post, uri=URI}, Payload, RelayState, ReqData, Context) ->
+    Html = esaml_binding:encode_http_post(URI, Payload, RelayState),
+    ReqData1 = wrq:set_resp_headers([
+                                     {"Cache-Control", "no-cache"},
+                                     {"Pragma", "no-cache"}
+                                    ], ReqData),
+    case wrq:method(ReqData) of
+        'POST' ->
+            {true, wrq:set_resp_body(Html, ReqData1), Context};
+        'GET' ->
+            {Html, ReqData1, Context}
+    end;
 reply_with_req(IDP, SignedXml, RelayState, ReqData, Context) ->
     Target = esaml_binding:encode_http_redirect(IDP, SignedXml, RelayState),
     UA = wrq:get_req_header("User-Agent", ReqData),
@@ -106,13 +156,13 @@ validate_authnreq(IDP, ReqData) ->
             validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData)
     end.
 
-validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData) ->
+validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, _ReqData) ->
     case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
         {'EXIT', Reason} ->
-            {error, {bad_decode, Reason}, ReqData};
+            {error, {bad_decode, Reason}};
         Xml ->
             case IDP:validate_authn_request(Xml) of
-                {ok, AuthnReq} -> {AuthnReq, RelayState, ReqData};
+                {ok, AuthnReq} -> {AuthnReq, RelayState};
                 Err -> Err
             end
     end.
@@ -162,13 +212,6 @@ validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2) ->
                     end
             end
     end.
-
-%% @doc Reply to a Webmachine request with a Metadata payload
--spec reply_with_metadata(esaml:sp(), ReqData, Context) -> {any(), ReqData, Context}.
-reply_with_metadata(Provider, ReqData, Context) ->
-    SignedXml = Provider:generate_metadata(),
-    Metadata = xmerl:export([SignedXml], xmerl_xml),
-    {Metadata, wrq:set_resp_headers([{"Content-Type", "text/xml"}], ReqData), Context}.
 
 %% @doc Validate and parse an Assertion inside a SAMLResponse
 %%

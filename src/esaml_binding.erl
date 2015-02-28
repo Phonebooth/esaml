@@ -10,8 +10,10 @@
 -module(esaml_binding).
 
 -export([decode_request/2, decode_response/2, encode_http_redirect/3, encode_http_post/3]).
+-export([generate_payload/2, generate_payload/3]).
 
 -include_lib("xmerl/include/xmerl.hrl").
+-include("../include/esaml.hrl").
 -define(deflate, <<"urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE">>).
 
 -type uri() :: binary() | string().
@@ -34,6 +36,36 @@ xml_payload_type(Xml) ->
             end;
         _ -> <<"SAMLRequest">>
     end.
+
+
+generate_payload(SAMLRecord, Provider, #esaml_binding{type=http_redirect}) ->
+    case Provider of
+        #esaml_sp{sp_sign_requests=true} ->
+            {error, signed_redirects_unsupported};
+        #esaml_idp{sign_requests=true} ->
+            {error, signed_redirects_unsupported};
+        _ ->
+            generate_payload(SAMLRecord, Provider)
+    end;
+generate_payload(SAMLRecord, Provider, #esaml_binding{}) ->
+    generate_payload(SAMLRecord, Provider).
+
+generate_payload(SAMLRecord, #esaml_sp{sp_sign_requests=true, key=Key, certificate=Cert}) ->
+    generate_signed_payload(SAMLRecord, Key, Cert);
+generate_payload(SAMLRecord, #esaml_sp{sp_sign_requests=false}) ->
+    generate_payload(SAMLRecord);
+generate_payload(SAMLRecord, #esaml_idp{sign_requests=true, key=Key, certificate=Cert}) ->
+    generate_signed_payload(SAMLRecord, Key, Cert);
+generate_payload(SAMLRecord, #esaml_idp{sign_requests=false}) ->
+    generate_payload(SAMLRecord).
+
+generate_payload(SAMLRecord) ->
+    Xml = esaml:to_xml(SAMLRecord),
+    esaml_utils:add_xml_id(Xml).
+
+generate_signed_payload(SAMLRecord, Key, Certificate) ->
+    Xml = esaml:to_xml(SAMLRecord),
+    xmerl_dsig:sign(Xml, Key, Certificate).
 
 decode_request(Encoding, Request) ->
     decode_response(Encoding, Request).

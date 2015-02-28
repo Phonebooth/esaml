@@ -162,10 +162,12 @@ decode_authn_request(Xml) ->
     Ns = [{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
           {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}],
     esaml_util:threaduntil([
-        ?xpath_attr_required("/samlp:AuthnRequest/@AssertionConsumerServiceURL", esaml_authnreq, consumer_location, missing_consumer_location),
         ?xpath_attr_required("/samlp:AuthnRequest/@IssueInstant", esaml_authnreq, issue_instant, missing_issue_instant),
         ?xpath_attr_required("/samlp:AuthnRequest/@ID", esaml_authnreq, id, missing_id),
         ?xpath_attr_required("/samlp:AuthnRequest/@Version", esaml_authnreq, version, missing_version),
+        ?xpath_attr("/samlp:AuthnRequest/@AssertionConsumerServiceURL", esaml_authnreq, consumer_location),
+        ?xpath_attr("/samlp:AuthnRequest/@ProtocolBinding", esaml_authnreq, protocol_binding, fun binding_map/1),
+        ?xpath_attr("/samlp:AuthnRequest/@AssertionConsumerServiceIndex", esaml_authnreq, consumer_index),
         ?xpath_attr("/samlp:AuthnRequest/@Destination", esaml_authnreq, destination),
         ?xpath_text("/samlp:AuthnRequest/saml:Issuer/text()", esaml_authnreq, issuer)
     ], #esaml_authnreq{}).
@@ -216,8 +218,13 @@ decode_binding(Xml) ->
     Attrs = Xml#xmlElement.attributes,
     Binding = (lists:keyfind('Binding', #xmlAttribute.name, Attrs))#xmlAttribute.value,
     Location = (lists:keyfind('Location', #xmlAttribute.name, Attrs))#xmlAttribute.value,
+    Index = case lists:keyfind('Index', #xmlAttribute.name, Attrs) of
+                false -> undefined;
+                #xmlAttribute{value=Value} -> Value
+            end,
     {ok, #esaml_binding{
         type = binding_map(Binding),
+        index = Index,
         uri = Location
     }}.
 
@@ -619,7 +626,7 @@ to_xml(#esaml_idp_metadata{org = #esaml_org{name = OrgName, displayname = OrgDis
 
     IdpSso0 = #xmlElement{name = 'md:IDPSSODescriptor',
         attributes = [#xmlAttribute{name = 'protocolSupportEnumeration', value = "urn:oasis:names:tc:SAML:2.0:protocol"},
-                      #xmlAttribute{name = 'AuthnRequestsSigned', value = atom_to_list(SignReq)}],
+                      #xmlAttribute{name = 'WantAuthnRequestsSigned', value = atom_to_list(SignReq)}],
         content = KeyDesc
     },
 
@@ -739,7 +746,7 @@ to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issu
             AttributeStatement
         ] ++ Conditions
     });
-to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=IssueInstant, destination=Destination}) ->
+to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=IssueInstant, destination=#esaml_binding{uri=Destination}}) ->
     Ns = #xmlNamespace{nodes=[{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
           {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
 

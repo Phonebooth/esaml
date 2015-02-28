@@ -17,36 +17,23 @@
 -export([generate_logout_request/3, generate_logout_response/3]).
 -export([validate_logout_request/2, validate_logout_response/2]).
 
--type xml() :: #xmlElement{} | #xmlDocument{}.
 -type dupe_fun() :: fun((esaml:assertion(), Digest :: binary()) -> ok | term()).
+-type xml() :: #xmlElement{} | #xmlDocument{}.
 -export_type([dupe_fun/0]).
 
-%% @private
--spec add_xml_id(xml()) -> xml().
-add_xml_id(Xml) ->
-    Xml#xmlElement{attributes = Xml#xmlElement.attributes ++ [
-        #xmlAttribute{name = 'ID',
-            value = uuid:to_string(uuid:uuid1()),
-            namespace = #xmlNamespace{}}
-        ]}.
-
-%% @doc Return an AuthnRequest as an XML element
--spec generate_authn_request(IdpURL :: string(), esaml:sp()) -> #xmlElement{}.
-generate_authn_request(IdpURL, SP = #esaml_sp{metadata_uri = MetaURI, consume_service = ConsumeService}) ->
+%% @doc Generate an AuthnRequest
+-spec generate_authn_request(IdpURL :: string(), esaml:sp()) -> #esaml_authnreq{}.
+generate_authn_request(IdpURL, #esaml_sp{metadata_uri = MetaURI, consume_service = ConsumeService}) ->
     Now = erlang:localtime_to_universaltime(erlang:localtime()),
     Stamp = esaml_util:datetime_to_saml(Now),
     SelectedBinding = select_service(ConsumeService),
 
-    Xml = esaml:to_xml(#esaml_authnreq{issue_instant = Stamp,
-                                       destination = IdpURL,
-                                       issuer = MetaURI,
-                                       consumer_location = SelectedBinding}),
-    if SP#esaml_sp.sp_sign_requests ->
-        xmerl_dsig:sign(Xml, SP#esaml_sp.key, SP#esaml_sp.certificate);
-    true ->
-        add_xml_id(Xml)
-    end.
+    #esaml_authnreq{issue_instant = Stamp,
+                    destination = IdpURL,
+                    issuer = MetaURI,
+                    consumer_location = SelectedBinding}.
 
+% prefer the post binding over redirect
 select_service(BindingList) ->
     case lists:keyfind(http_post, #esaml_binding.type, BindingList) of
         false ->
@@ -60,43 +47,33 @@ select_service(BindingList) ->
             Result
     end.
 
-%% @doc Return a LogoutRequest as an XML element
--spec generate_logout_request(IdpURL :: string(), NameID :: string(), esaml:sp()) -> #xmlElement{}.
-generate_logout_request(IdpURL, NameID, SP = #esaml_sp{metadata_uri = MetaURI}) ->
+%% @doc Generate a logout request
+-spec generate_logout_request(IdpURL :: string(), NameID :: string(), esaml:sp()) -> #esaml_logoutreq{}.
+generate_logout_request(IdpURL, NameID, #esaml_sp{metadata_uri = MetaURI}) ->
     Now = erlang:localtime_to_universaltime(erlang:localtime()),
     Stamp = esaml_util:datetime_to_saml(Now),
 
-    Xml = esaml:to_xml(#esaml_logoutreq{issue_instant = Stamp,
-                                       destination = IdpURL,
-                                       issuer = MetaURI,
-                                       name = NameID,
-                                       reason = user}),
-    if SP#esaml_sp.sp_sign_requests ->
-        xmerl_dsig:sign(Xml, SP#esaml_sp.key, SP#esaml_sp.certificate);
-    true ->
-        add_xml_id(Xml)
-    end.
+    #esaml_logoutreq{issue_instant = Stamp,
+                     destination = IdpURL,
+                     issuer = MetaURI,
+                     name = NameID,
+                     reason = user}.
 
-%% @doc Return a LogoutResponse as an XML element
--spec generate_logout_response(IdpURL :: string(), esaml:status_code(), esaml:sp()) -> #xmlElement{}.
-generate_logout_response(IdpURL, Status, SP = #esaml_sp{metadata_uri = MetaURI}) ->
+%% @doc Generate a logout response
+-spec generate_logout_response(IdpURL :: string(), esaml:status_code(), esaml:sp()) -> #esaml_logoutresp{}.
+generate_logout_response(IdpURL, Status, #esaml_sp{metadata_uri = MetaURI}) ->
     Now = erlang:localtime_to_universaltime(erlang:localtime()),
     Stamp = esaml_util:datetime_to_saml(Now),
 
-    Xml = esaml:to_xml(#esaml_logoutresp{issue_instant = Stamp,
-                                       destination = IdpURL,
-                                       issuer = MetaURI,
-                                       status = Status}),
-    if SP#esaml_sp.sp_sign_requests ->
-        xmerl_dsig:sign(Xml, SP#esaml_sp.key, SP#esaml_sp.certificate);
-    true ->
-        add_xml_id(Xml)
-    end.
+    #esaml_logoutresp{issue_instant = Stamp,
+                      destination = IdpURL,
+                      issuer = MetaURI,
+                      status = Status}.
 
-%% @doc Return the SP metadata as an XML element
--spec generate_metadata(esaml:sp()) -> #xmlElement{}.
+%% @doc Generate the SP metadata
+-spec generate_metadata(esaml:sp()) -> #esaml_sp_metadata{}.
 generate_metadata(SP = #esaml_sp{org = Org, tech = Tech}) ->
-    Xml = esaml:to_xml(#esaml_sp_metadata{
+    #esaml_sp_metadata{
         org = Org,
         tech = Tech,
         signed_requests = SP#esaml_sp.sp_sign_requests,
@@ -105,12 +82,7 @@ generate_metadata(SP = #esaml_sp{org = Org, tech = Tech}) ->
         cert_chain = SP#esaml_sp.cert_chain,
         consumer_bindings = SP#esaml_sp.consume_service,
         logout_bindings = SP#esaml_sp.logout_service,
-        entity_id = SP#esaml_sp.metadata_uri}),
-    if SP#esaml_sp.sp_sign_metadata ->
-        xmerl_dsig:sign(Xml, SP#esaml_sp.key, SP#esaml_sp.certificate);
-    true ->
-        add_xml_id(Xml)
-    end.
+        entity_id = SP#esaml_sp.metadata_uri}.
 
 %% @doc Initialize and validate an esaml_sp record
 -spec setup(esaml:sp()) -> esaml:sp().

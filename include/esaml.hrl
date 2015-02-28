@@ -47,6 +47,8 @@
 	issue_instant = "" :: esaml:datetime(),
 	destination = "" :: string(),
 	issuer = "" :: string(),
+        consumer_index :: integer(),
+        protocol_binding :: atom(),
 	consumer_location = "" :: string()}).
 
 -record(esaml_subject, {
@@ -102,6 +104,7 @@
 
 -record(esaml_binding, {
         type :: http_redirect | http_post,
+        index :: integer(),
         uri :: string()}).
 
 %% state records
@@ -125,7 +128,7 @@
 -record(esaml_idp, {
          org = #esaml_org{} :: esaml:org(),
          tech = #esaml_contact{} :: esaml:contact(),
-         sp_sign_requests = false :: boolean(),
+         sign_requests = true :: boolean(),
          trusted_fingerprints = [] :: [string() | binary()],
          key :: #'RSAPrivateKey'{} | undefined,
          certificate :: binary() | undefined,
