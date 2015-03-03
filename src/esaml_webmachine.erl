@@ -31,7 +31,7 @@
 reply_with_authnreq(SP, IDP, RelayState, ReqData, Context) ->
     AuthnRequest = SP:generate_authn_request(IDP),
     Binding = AuthnRequest#esaml_authnreq.consumer_location,
-    reply_with_req(Binding, AuthnRequest, RelayState, ReqData, Context).
+    reply_with_req(Binding, AuthnRequest, SP, RelayState, ReqData, Context).
 
 %% @doc Reply to a Webmachine request with an AuthnResponse payload
 %%
@@ -74,33 +74,29 @@ reply_with_metadata(Provider, ReqData, Context) ->
     Payload = esaml_binding:generate_payload(Metadata, Provider),
     {Payload, wrq:set_resp_headers([{"Content-Type", "text/xml"}], ReqData), Context}.
 
-reply_with_req(Binding=#esaml_binding{}, SAMLRecord, Provider, RelayState, ReqData, Context) ->
-    case Binding:generate_payload(SAMLRecord, Provider) of
-        {error, signed_redirects_unsupport} ->
-            % TODO revisit - give it a try with POST?
-            reply_with_req(Binding#esaml_binding{type=http_post}, SAMLRecord, Provider, RelayState, Context);
-        Payload ->
-            reply_with_req(Binding, Payload, RelayState, ReqData, Context)
-    end.
-
 %% @private
-reply_with_req(B=#esaml_binding{type=http_redirect, uri=URI}, Payload, RelayState, ReqData, Context) ->
-    Target = esaml_binding:encode_http_redirect(URI, Payload, RelayState),
-    UA = wrq:get_req_header("User-Agent", ReqData),
-    IsIE = not (binary:match(list_to_binary(UA), <<"MSIE">>) =:= nomatch),
-    if IsIE andalso (byte_size(Target) > 2042) ->
-        reply_with_req(B#esaml_binding{type=http_post}, Payload, RelayState, ReqData, Context);
-    true ->
-        ReqData1 = wrq:set_resp_headers([
-            {"Cache-Control", "no-cache"},
-            {"Pragma", "no-cache"},
-            {"Location", binary_to_list(Target)}
-        ], ReqData),
-        ReqData2 = wrq:set_resp_body("Redirecting...", ReqData1),
-        {{halt, 302}, ReqData2, Context}
+reply_with_req(Binding=#esaml_binding{type=http_redirect}, SAMLRecord, Provider, RelayState, ReqData, Context) ->
+    case Binding:encode_http_redirect(Provider, SAMLRecord, RelayState) of
+        {error, signed_redirects_unsupported} ->
+            % TODO revisit - give it a try with POST?
+            reply_with_req(Binding#esaml_binding{type=http_post}, SAMLRecord, Provider, RelayState, ReqData, Context);
+        Target ->
+            UA = wrq:get_req_header("User-Agent", ReqData),
+            IsIE = not (binary:match(list_to_binary(UA), <<"MSIE">>) =:= nomatch),
+            if IsIE andalso (byte_size(Target) > 2042) ->
+                   reply_with_req(Binding#esaml_binding{type=http_post}, SAMLRecord, Provider, RelayState, ReqData, Context);
+               true ->
+                   ReqData1 = wrq:set_resp_headers([
+                                                    {"Cache-Control", "no-cache"},
+                                                    {"Pragma", "no-cache"},
+                                                    {"Location", binary_to_list(Target)}
+                                                   ], ReqData),
+                   ReqData2 = wrq:set_resp_body("Redirecting...", ReqData1),
+                   {{halt, 302}, ReqData2, Context}
+            end
     end;
-reply_with_req(#esaml_binding{type=http_post, uri=URI}, Payload, RelayState, ReqData, Context) ->
-    Html = esaml_binding:encode_http_post(URI, Payload, RelayState),
+reply_with_req(Binding=#esaml_binding{type=http_post}, SAMLRecord, Provider, RelayState, ReqData, Context) ->
+    Html = Binding:encode_http_post(Provider, SAMLRecord, RelayState),
     ReqData1 = wrq:set_resp_headers([
                                      {"Cache-Control", "no-cache"},
                                      {"Pragma", "no-cache"}
@@ -110,31 +106,6 @@ reply_with_req(#esaml_binding{type=http_post, uri=URI}, Payload, RelayState, Req
             {true, wrq:set_resp_body(Html, ReqData1), Context};
         'GET' ->
             {Html, ReqData1, Context}
-    end;
-reply_with_req(IDP, SignedXml, RelayState, ReqData, Context) ->
-    Target = esaml_binding:encode_http_redirect(IDP, SignedXml, RelayState),
-    UA = wrq:get_req_header("User-Agent", ReqData),
-    IsIE = not (binary:match(list_to_binary(UA), <<"MSIE">>) =:= nomatch),
-    if IsIE andalso (byte_size(Target) > 2042) ->
-        Html = esaml_binding:encode_http_post(IDP, SignedXml, RelayState),
-        ReqData1 = wrq:set_resp_headers([
-            {"Cache-Control", "no-cache"},
-            {"Pragma", "no-cache"}
-        ], ReqData),
-        case wrq:method(ReqData) of
-            'POST' ->
-                {true, wrq:set_resp_body(Html, ReqData1), Context};
-            'GET' ->
-                {Html, ReqData1, Context}
-        end;
-    true ->
-        ReqData1 = wrq:set_resp_headers([
-            {"Cache-Control", "no-cache"},
-            {"Pragma", "no-cache"},
-            {"Location", binary_to_list(Target)}
-        ], ReqData),
-        ReqData2 = wrq:set_resp_body("Redirecting...", ReqData1),
-        {{halt, 302}, ReqData2, Context}
     end.
 
 %% @doc Validate and parse an authentication request
