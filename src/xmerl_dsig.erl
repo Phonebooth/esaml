@@ -160,10 +160,12 @@ verify(Element, Fingerprints) ->
         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
 
     [#xmlAttribute{value = SignatureMethodAlgorithm}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:SignatureMethod/@Algorithm", Element, [{namespace, DsNs}]),
-    {HashFunction, _} = signature_props(SignatureMethodAlgorithm),
+    {SignatureHashFunction, _} = signature_props(SignatureMethodAlgorithm),
 
     [#xmlAttribute{value = "http://www.w3.org/2001/10/xml-exc-c14n#"}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:CanonicalizationMethod/@Algorithm", Element, [{namespace, DsNs}]),
-    [#xmlAttribute{value = SignatureMethodAlgorithm}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:SignatureMethod/@Algorithm", Element, [{namespace, DsNs}]),
+    [#xmlAttribute{value = DigestMethodAlgorithm}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", Element, [{namespace, DsNs}]),
+    DigestHashFunction = digest_props(DigestMethodAlgorithm),
+
     [C14nTx = #xmlElement{}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
     InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
         [] -> [];
@@ -172,7 +174,7 @@ verify(Element, Fingerprints) ->
 
     CanonXml = xmerl_c14n:c14n(strip(Element), false, InclNs),
     CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
-    CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
+    CanonSha = crypto:hash(DigestHashFunction, CanonXmlUtf8),
 
     [#xmlText{value = Sha64}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestValue/text()", Element, [{namespace, DsNs}]),
     CanonSha2 = base64:decode(Sha64),
@@ -196,7 +198,7 @@ verify(Element, Fingerprints) ->
         {_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
 
-        case public_key:verify(Data, HashFunction, Sig, Key) of
+        case public_key:verify(Data, SignatureHashFunction, Sig, Key) of
             true ->
                 case Fingerprints of
                     any ->
@@ -221,6 +223,11 @@ verify(Element, Fingerprints) ->
 -spec verify(Element :: xml_thing()) -> ok | {error, bad_digest | bad_signature | cert_not_accepted}.
 verify(Element) ->
     verify(Element, any).
+
+digest_props("http://www.w3.org/2000/09/xmldsig#sha1") ->
+    sha;
+digest_props("http://www.w3.org/2001/04/xmlenc#sha256") ->
+    sha256.
 
 signature_props("http://www.w3.org/2000/09/xmldsig#rsa-sha1") ->
     HashFunction = sha,
