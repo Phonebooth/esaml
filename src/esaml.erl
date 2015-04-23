@@ -47,7 +47,7 @@
 -type status_code() :: success | request_error | response_error | bad_version | authn_failed | bad_attr | denied | bad_binding | unknown.
 -type version() :: string().
 -type datetime() :: string() | binary().
--type condition() :: {not_before, esaml:datetime()} | {not_on_or_after, esaml:datetime()} | {audience, string()}.
+-type condition() :: #esaml_conditions{}.
 -type conditions() :: [condition()].
 -export_type([localized_string/0, name_format/0, logout_reason/0, status_code/0, version/0, datetime/0, conditions/0]).
 
@@ -322,21 +322,9 @@ decode_assertion_subject(Xml) ->
 decode_assertion_conditions(Xml) ->
     Ns = [{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}],
     esaml_util:threaduntil([
-        fun(C) ->
-            case xmerl_xpath:string("/saml:Conditions/@NotBefore", Xml, [{namespace, Ns}]) of
-                [#xmlAttribute{value = V}] -> [{not_before, V} | C]; _ -> C
-            end
-        end,
-        fun(C) ->
-            case xmerl_xpath:string("/saml:Conditions/@NotOnOrAfter", Xml, [{namespace, Ns}]) of
-                [#xmlAttribute{value = V}] -> [{not_on_or_after, V} | C]; _ -> C
-            end
-        end,
-        fun(C) ->
-            case xmerl_xpath:string("/saml:Conditions/saml:AudienceRestriction/saml:Audience/text()", Xml, [{namespace, Ns}]) of
-                [#xmlText{value = V}] -> [{audience, V} | C]; _ -> C
-            end
-        end
+        ?xpath_attr("/saml:Conditions/@NotBefore", esaml_conditions, not_before, fun esaml_util:saml_to_datetime/1),
+        ?xpath_attr("/saml:Conditions/@NotOnOrAfter", esaml_conditions, not_on_or_after, fun esaml_util:saml_to_datetime/1),
+        ?xpath_attr("/saml:Conditions/saml:AudienceRestriction/saml:Audience/text()", esaml_conditions, audience)
     ], []).
 
 -spec decode_assertion_attributes(#xmlElement{}) -> {ok, [{atom(), string()}]} | {error, term()}.
@@ -710,6 +698,24 @@ to_xml(#esaml_authn_statement{issue_instant=IssueInstant, session_index=SessionI
             AuthnContext
         ]
     });
+to_xml(#esaml_conditions{not_before=NotBefore, not_on_or_after=NotAfter}) ->
+    Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
+    Attributes = case NotBefore of
+                     undefined ->
+                         [];
+                     _ ->
+                         [#xmlAttribute{name='NotBefore', value=esaml_util:datetime_to_saml(NotBefore)}]
+                 end,
+
+    Attributes2 = case NotAfter of
+                      undefined ->
+                          Attributes;
+                      _ ->
+                          [#xmlAttribute{name='NotOnOrAfter', value=esaml_util:datetime_to_saml(NotAfter)} | Attributes]
+                  end,
+    %TODO: audience
+    esaml_util:build_nsinfo(Ns, #xmlElement{name='saml:Conditions',
+                            attributes=Attributes2});
 to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issue_instant=IssueInstant}) ->
     Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
 

@@ -102,6 +102,11 @@
 	status = unknown :: esaml:status_code(),
 	assertion = #esaml_assertion{} :: esaml:assertion()}).
 
+-record(esaml_conditions, {
+          not_before :: esaml:datetime(),
+          not_on_or_after :: esaml:datetime(),
+          audience :: string()}).
+
 -record(esaml_binding, {
         type :: http_redirect | http_post,
         index :: integer(),
