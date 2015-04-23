@@ -88,6 +88,12 @@ nameid_map("urn:oasis:names:tc:SAML:2.0:nameid-format:persistent") -> persistent
 nameid_map("urn:oasis:names:tc:SAML:2.0:nameid-format:transient") -> transient;
 nameid_map(S) when is_list(S) -> unknown.
 
+rev_nameid_map(permanent) -> "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
+rev_nameid_map(email) -> "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress";
+rev_nameid_map(x509) -> "urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName";
+rev_nameid_map(windows) -> "urn:oasis:names:tc:SAML:1.1:nameid-format:WindowsDomainQualifiedName";
+rev_nameid_map(_) -> "urn:oasis:names:tc:SAML:2.0:nameid-format:transient".
+
 -spec subject_method_map(string()) -> bearer | unknown.
 subject_method_map("urn:oasis:names:tc:SAML:2.0:cm:bearer") -> bearer;
 subject_method_map(_) -> unknown.
@@ -653,11 +659,11 @@ to_xml(#esaml_idp_metadata{org = #esaml_org{name = OrgName, displayname = OrgDis
             MdContact
         ]
     });
-to_xml(#esaml_subject{name=Name, confirmation_method=ConfirmMethod, notonorafter=Expiry, recipient=Recipient, authn_req_id=InResponseTo}) ->
+to_xml(#esaml_subject{name=Name, name_type=NameType, confirmation_method=ConfirmMethod, notonorafter=Expiry, recipient=Recipient, authn_req_id=InResponseTo}) ->
     Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
 
     NameID = #xmlElement{name='saml:NameID',
-                         attributes = [#xmlAttribute{name='Format', value="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"}],
+                         attributes = [#xmlAttribute{name='Format', value=rev_nameid_map(NameType)}],
                          content=[#xmlText{value=Name}]},
 
     SubjectConfirmationData = #xmlElement{name='saml:SubjectConfirmationData',
@@ -698,7 +704,7 @@ to_xml(#esaml_authn_statement{issue_instant=IssueInstant, session_index=SessionI
             AuthnContext
         ]
     });
-to_xml(#esaml_conditions{not_before=NotBefore, not_on_or_after=NotAfter}) ->
+to_xml(#esaml_conditions{not_before=NotBefore, not_on_or_after=NotAfter, audience=Audience}) ->
     Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
     Attributes = case NotBefore of
                      undefined ->
@@ -713,9 +719,17 @@ to_xml(#esaml_conditions{not_before=NotBefore, not_on_or_after=NotAfter}) ->
                       _ ->
                           [#xmlAttribute{name='NotOnOrAfter', value=esaml_util:datetime_to_saml(NotAfter)} | Attributes]
                   end,
-    %TODO: audience
+    Content = case Audience of
+                  undefined ->
+                      [];
+                  _ ->
+                      [#xmlElement{name='saml:AudienceRestriction',
+                                  content=[ #xmlElement{name='saml:Audience',
+                                                        content=[#xmlText{value=Audience}]}]}]
+              end,
     esaml_util:build_nsinfo(Ns, #xmlElement{name='saml:Conditions',
-                            attributes=Attributes2});
+                            attributes=Attributes2,
+                            content=Content});
 to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issue_instant=IssueInstant}) ->
     Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
 
@@ -725,7 +739,7 @@ to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issu
     % TODO: Signature
 
     Subject = to_xml(Assertion#esaml_assertion.subject),
-    Conditions = [ to_xml(Cond) || Cond <- Assertion#esaml_assertion.conditions ],
+    Conditions = to_xml(Assertion#esaml_assertion.conditions),
 
     AuthnStatement = to_xml(Assertion#esaml_assertion.statement),
 
@@ -749,8 +763,9 @@ to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issu
             Issuer,
             Subject,
             AuthnStatement,
-            AttributeStatement
-        ] ++ Conditions
+            AttributeStatement,
+            Conditions
+        ]
     });
 to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=IssueInstant, destination=#esaml_binding{uri=Destination}}) ->
     Ns = #xmlNamespace{nodes=[{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
