@@ -17,7 +17,7 @@
 -export([start_ets/0, check_dupe_ets/2]).
 -export([folduntil/3, thread/2, threaduntil/2]).
 -export([build_nsinfo/2]).
--export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1, load_sp_metadata/1, load_sp_metadata/2]).
+-export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1, load_sp_metadata/1]).
 -export([convert_fingerprints/1]).
 -export([add_xml_id/1]).
 
@@ -194,12 +194,12 @@ load_sp_metadata(Url) ->
         _ ->
             {ok, {{_Ver, 200, _}, _Headers, Body}} = httpc:request(get, {Url, []}, [{autoredirect, true}], []),
             {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
-            load_sp_metadata(Url, Xml)
+            cache_sp_metadata(Xml)
     end.
 
-load_sp_metadata(Url, Xml) ->
-    {ok, Meta = #esaml_sp_metadata{}} = esaml:decode_sp_metadata(Xml),
-    ets:insert(esaml_sp_meta_cache, {Url, Meta}),
+cache_sp_metadata(Xml) ->
+    {ok, Meta = #esaml_sp_metadata{entity_id=Issuer}} = esaml:decode_sp_metadata(Xml),
+    ets:insert(esaml_sp_meta_cache, {Issuer, Meta}),
     Meta.
 
 
