@@ -330,8 +330,8 @@ decode_assertion_conditions(Xml) ->
     esaml_util:threaduntil([
         ?xpath_attr("/saml:Conditions/@NotBefore", esaml_conditions, not_before, fun esaml_util:saml_to_datetime/1),
         ?xpath_attr("/saml:Conditions/@NotOnOrAfter", esaml_conditions, not_on_or_after, fun esaml_util:saml_to_datetime/1),
-        ?xpath_attr("/saml:Conditions/saml:AudienceRestriction/saml:Audience/text()", esaml_conditions, audience)
-    ], []).
+        ?xpath_text_list("/saml:Conditions/saml:AudienceRestriction/saml:Audience/text()", esaml_conditions, audience)
+    ], #esaml_conditions{}).
 
 -spec decode_assertion_attributes(#xmlElement{}) -> {ok, [{atom(), string()}]} | {error, term()}.
 decode_assertion_attributes(Xml) ->
@@ -342,11 +342,11 @@ decode_assertion_attributes(Xml) ->
             [Name] ->
                 case xmerl_xpath:string("saml:AttributeValue/text()", AttrElem, [{namespace, Ns}]) of
                     [#xmlText{value = Value}] ->
-                        [{common_attrib_map(Name), Value} | In];
+                        [#esaml_attribute{name=common_attrib_map(Name), values=[Value]} | In];
                     List ->
                         if (length(List) > 0) ->
                             Value = [X#xmlText.value || X <- List, element(1, X) =:= xmlText],
-                            [{common_attrib_map(Name), Value} | In];
+                            [#esaml_attribute{name=common_attrib_map(Name), values=Value} | In];
                         true ->
                             In
                         end
@@ -370,8 +370,8 @@ stale_time(A) ->
             end
         end,
         fun(T) ->
-            Conds = A#esaml_assertion.conditions,
-            case proplists:get_value(not_on_or_after, Conds) of
+            Conds = #esaml_conditions{} = A#esaml_assertion.conditions,
+            case Conds#esaml_conditions.not_on_or_after of
                 undefined -> T;
                 Restrict ->
                     Secs = calendar:datetime_to_gregorian_seconds(
@@ -420,11 +420,13 @@ validate_assertion(AssertionXml, Recipient, Audience) ->
                     _ -> {error, bad_recipient}
                 end end,
                 fun(A) -> case A of
-                    #esaml_assertion{conditions = Conds} ->
-                        case proplists:get_value(audience, Conds) of
+                    #esaml_assertion{conditions = #esaml_conditions{audience=ClaimedAudiences}} ->
+                        case ClaimedAudiences of
                             undefined -> A;
-                            Audience -> A;
-                            _ -> {error, bad_audience}
+                            _ -> case lists:member(Audience, ClaimedAudiences) of
+                                     true -> A;
+                                     false -> {error, bad_audience}
+                                 end
                         end;
                     _ -> A
                 end end,
@@ -730,6 +732,11 @@ to_xml(#esaml_conditions{not_before=NotBefore, not_on_or_after=NotAfter, audienc
     esaml_util:build_nsinfo(Ns, #xmlElement{name='saml:Conditions',
                             attributes=Attributes2,
                             content=Content});
+to_xml(#esaml_attribute{name=Name, values=Values}) ->
+    #xmlElement{name = 'saml:Attribute',
+                attributes = [ #xmlAttribute{name = 'Name', value = Name} ],
+                content = [ #xmlElement{name='saml:AttributeValue',
+                                        content = [#xmlText{value=Value}]} || Value <- Values ]};
 to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issue_instant=IssueInstant}) ->
     Ns = #xmlNamespace{nodes=[{"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}]},
 
@@ -743,11 +750,7 @@ to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issu
 
     AuthnStatement = to_xml(Assertion#esaml_assertion.statement),
 
-    Attributes = [ #xmlElement{name = 'saml:Attribute',
-                               attributes = [ #xmlAttribute{name = 'Name', value = Key} ],
-                               content = [ #xmlElement{name='saml:AttributeValue',
-                                                       content = [#xmlText{value=Value}]} ]}
-                   || {Key, Value} <- Assertion#esaml_assertion.attributes ],
+    Attributes = [ to_xml(Attr) || Attr <- Assertion#esaml_assertion.attributes ],
 
     AttributeStatement = #xmlElement{name = 'saml:AttributeStatement',
                                      content = Attributes},
@@ -794,9 +797,6 @@ to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=Issue
             Assertion
         ]
     });
-
-
-
 to_xml(_) -> error("unknown record").
 
 build_indexed_endpoint_list(List, ElementName) ->
@@ -857,16 +857,18 @@ decode_assertion_test() ->
     {ok, #esaml_response{issue_instant = "2013-01-01T01:01:01Z", issuer = "foo", status = success, assertion = #esaml_assertion{issue_instant = "test", issuer = "foo", recipient = "foobar123", subject = #esaml_subject{name = "foobar", confirmation_method = bearer}}}} = Resp.
 
 decode_conditions_test() ->
-    {Doc, _} = xmerl_scan:string("<samlp:Response xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" Version=\"2.0\" IssueInstant=\"2013-01-01T01:01:01Z\"><saml:Issuer>foo</saml:Issuer><samlp:Status><samlp:StatusCode Value=\"urn:oasis:names:tc:SAML:2.0:status:Success\" /></samlp:Status><saml:Assertion Version=\"2.0\" IssueInstant=\"test\"><saml:Issuer>foo</saml:Issuer><saml:Subject><saml:NameID>foobar</saml:NameID><saml:SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\"><saml:SubjectConfirmationData Recipient=\"foobar123\" /></saml:SubjectConfirmation></saml:Subject><saml:Conditions NotBefore=\"before\" NotOnOrAfter=\"notafter\"><saml:AudienceRestriction><saml:Audience>foobaraudience</saml:Audience></saml:AudienceRestriction></saml:Conditions></saml:Assertion></samlp:Response>", [{namespace_conformant, true}]),
+    {Doc, _} = xmerl_scan:string("<samlp:Response xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" Version=\"2.0\" IssueInstant=\"2013-01-01T01:01:01Z\"><saml:Issuer>foo</saml:Issuer><samlp:Status><samlp:StatusCode Value=\"urn:oasis:names:tc:SAML:2.0:status:Success\" /></samlp:Status><saml:Assertion Version=\"2.0\" IssueInstant=\"test\"><saml:Issuer>foo</saml:Issuer><saml:Subject><saml:NameID>foobar</saml:NameID><saml:SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\"><saml:SubjectConfirmationData Recipient=\"foobar123\" /></saml:SubjectConfirmation></saml:Subject><saml:Conditions NotBefore=\"2013-01-01T01:01:01Z\" NotOnOrAfter=\"2013-01-01T03:01:01Z\"><saml:AudienceRestriction><saml:Audience>foobaraudience</saml:Audience></saml:AudienceRestriction></saml:Conditions></saml:Assertion></samlp:Response>", [{namespace_conformant, true}]),
     Resp = decode_response(Doc),
     {ok, #esaml_response{assertion = #esaml_assertion{conditions = Conds}}} = Resp,
-    [{audience, "foobaraudience"}, {not_before, "before"}, {not_on_or_after, "notafter"}] = lists:sort(Conds).
+    #esaml_conditions{audience=["foobaraudience"], not_before={{2013,1,1}, {1,1,1}}, not_on_or_after={{2013,1,1}, {3,1,1}}} = Conds.
 
 decode_attributes_test() ->
     {Doc, _} = xmerl_scan:string("<saml:Assertion xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" Version=\"2.0\" IssueInstant=\"test\"><saml:Subject><saml:NameID>foobar</saml:NameID><saml:SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\"><saml:SubjectConfirmationData Recipient=\"foobar123\" /></saml:SubjectConfirmation></saml:Subject><saml:AttributeStatement><saml:Attribute Name=\"urn:oid:0.9.2342.19200300.100.1.3\"><saml:AttributeValue>test@test.com</saml:AttributeValue></saml:Attribute><saml:Attribute Name=\"foo\"><saml:AttributeValue>george</saml:AttributeValue><saml:AttributeValue>bar</saml:AttributeValue></saml:Attribute><saml:Attribute Name=\"http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress\"><saml:AttributeValue>test@test.com</saml:AttributeValue></saml:Attribute></saml:AttributeStatement></saml:Assertion>", [{namespace_conformant, true}]),
     Assertion = decode_assertion(Doc),
     {ok, #esaml_assertion{attributes = Attrs}} = Assertion,
-    [{emailaddress, "test@test.com"}, {foo, ["george", "bar"]}, {mail, "test@test.com"}] = lists:sort(Attrs).
+    [#esaml_attribute{name=emailaddress,values=[ "test@test.com"]}, 
+     #esaml_attribute{name=foo, values=["george", "bar"]}, 
+     #esaml_attribute{name=mail, values=["test@test.com"]}] = lists:sort(Attrs).
 
 validate_assertion_test() ->
     Now = erlang:localtime_to_universaltime(erlang:localtime()),
@@ -889,7 +891,7 @@ validate_assertion_test() ->
                     #xmlElement{name = 'saml:Audience', content = [#xmlText{value = "foo"}]}] }] } ]
     }),
     {ok, Assertion} = validate_assertion(E1, "foobar", "foo"),
-    #esaml_assertion{issue_instant = "now", recipient = "foobar", subject = #esaml_subject{notonorafter = Death}, conditions = [{audience, "foo"}]} = Assertion,
+    #esaml_assertion{issue_instant = "now", recipient = "foobar", subject = #esaml_subject{notonorafter = Death}, conditions = #esaml_conditions{audience=["foo"]}} = Assertion,
     {error, bad_recipient} = validate_assertion(E1, "foo", "something"),
     {error, bad_audience} = validate_assertion(E1, "foobar", "something"),
 

@@ -65,6 +65,11 @@
         context_class
         }).
 
+-record(esaml_conditions, {
+          not_before :: esaml:datetime(),
+          not_on_or_after :: esaml:datetime(),
+          audience :: [string()] | undefined}).
+
 -record(esaml_assertion, {
         id = "" :: string(),
 	version = "2.0" :: esaml:version(),
@@ -73,8 +78,12 @@
 	issuer = "" :: string(),
 	subject = #esaml_subject{} :: esaml:subject(),
         statement,
-	conditions = [] :: esaml:conditions(),
+	conditions = #esaml_conditions{} :: esaml:conditions(),
 	attributes = [] :: proplists:proplist()}).
+
+-record(esaml_attribute, {
+          name,
+          values = []}).
 
 -record(esaml_logoutreq, {
         id :: string(),
@@ -102,11 +111,6 @@
 	issuer = "" :: string(),
 	status = unknown :: esaml:status_code(),
 	assertion = #esaml_assertion{} :: esaml:assertion()}).
-
--record(esaml_conditions, {
-          not_before :: esaml:datetime(),
-          not_on_or_after :: esaml:datetime(),
-          audience :: string()}).
 
 -record(esaml_binding, {
         type :: http_redirect | http_post,

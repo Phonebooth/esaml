@@ -50,6 +50,12 @@
         end
     end).
 
+-define(xpath_text_list(XPath, Record, Field),
+    fun (Resp) ->
+        List = xmerl_xpath:string(XPath, Xml, [{namespace, Ns}]),
+        Resp#Record{Field=[ V || E=#xmlText{value=V} <- List, element(1, E) =:= xmlText]}
+    end).
+
 -define(xpath_list_recurse(XPath, Record, Field, F),
     fun(Resp) ->
         Nodes = xmerl_xpath:string(XPath, Xml, [{namespace, Ns}]),
