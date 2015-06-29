@@ -187,14 +187,18 @@ load_metadata(Url) ->
     end.
 
 %% @doc Reads SP metadata from a URL (or ETS memory cache)
--spec load_sp_metadata(Url :: string()) -> esaml:sp_metadata().
+-spec load_sp_metadata(Url :: string()) -> esaml:sp_metadata() | {error, atom()}.
 load_sp_metadata(Url) ->
     case ets:lookup(esaml_sp_meta_cache, Url) of
         [{Url, Meta}] -> Meta;
         _ ->
-            {ok, {{_Ver, 200, _}, _Headers, Body}} = httpc:request(get, {Url, []}, [{autoredirect, true}], []),
-            {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
-            cache_sp_metadata(Xml)
+            case httpc:request(get, {Url, []}, [{autoredirect, true}], []) of
+                {ok, {{_Ver, 200, _}, _Headers, Body}} ->
+                    {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
+                    cache_sp_metadata(Xml);
+                _ ->
+                    {error, sp_metadata_not_available}
+            end
     end.
 
 cache_sp_metadata(Xml) ->
