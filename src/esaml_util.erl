@@ -19,7 +19,7 @@
 -export([build_nsinfo/2]).
 -export([load_private_key/1, load_certificate_chain/1, load_certificate/1, load_metadata/2, load_metadata/1, load_sp_metadata/1]).
 -export([convert_fingerprints/1]).
--export([add_xml_id/1]).
+-export([add_xml_id/1, xs_id/0]).
 
 -type xml() :: #xmlElement{} | #xmlDocument{}.
 
@@ -254,12 +254,15 @@ check_dupe_ets(A, Digest) ->
             ok
     end.
 
+xs_id() ->
+    "_" ++ uuid:to_string(uuid:uuid1()).
+
 %% @private
 -spec add_xml_id(xml()) -> xml().
 add_xml_id(Xml) ->
     Xml#xmlElement{attributes = Xml#xmlElement.attributes ++ [
         #xmlAttribute{name = 'ID',
-            value = uuid:to_string(uuid:uuid1()),
+            value = xs_id(),
             namespace = #xmlNamespace{}}
         ]}.
 

@@ -765,9 +765,9 @@ to_xml(Assertion=#esaml_assertion{id=ID, issuer=IssuerUri, version=Version, issu
         ], content = [
             Issuer,
             Subject,
+            Conditions,
             AuthnStatement,
-            AttributeStatement,
-            Conditions
+            AttributeStatement
         ]
     });
 to_xml(Response=#esaml_response{id=ID, request_id=RequestID, issue_instant=IssueInstant, destination=#esaml_binding{uri=Destination}}) ->

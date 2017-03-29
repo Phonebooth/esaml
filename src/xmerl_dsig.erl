@@ -61,7 +61,7 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SignatureMethodAlgorit
             case lists:keyfind('id', 2, ElementStrip#xmlElement.attributes) of
                 #xmlAttribute{value = LowId} -> {ElementStrip, LowId};
                 _ ->
-                    NewId = uuid:to_string(uuid:uuid1()),
+                    NewId = esaml_util:xs_id(),
                     Attr = #xmlAttribute{name = 'ID', value = NewId, namespace = #xmlNamespace{}},
                     NewAttrs = [Attr | ElementStrip#xmlElement.attributes],
                     Elem = ElementStrip#xmlElement{attributes = NewAttrs},
@@ -121,7 +121,8 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SignatureMethodAlgorit
         ]
     }),
 
-    Element#xmlElement{content = [SigElem | Element#xmlElement.content]}.
+    % ds:Signature should always come after Issuer
+    Element#xmlElement{content = [hd(Element#xmlElement.content) | [ SigElem | tl(Element#xmlElement.content) ]]}.
 
 %% @doc Returns the canonical SHA-1 digest of an (optionally signed) element
 %%

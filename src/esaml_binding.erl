@@ -61,7 +61,7 @@ generate_xmerl(SAMLRecord, #esaml_idp{sign_requests=false}) ->
 
 generate_xmerl(SAMLRecord) ->
     Xml = esaml:to_xml(SAMLRecord),
-    esaml_utils:add_xml_id(Xml).
+    esaml_util:add_xml_id(Xml).
 
 generate_signed_xmerl(SAMLRecord, Key, Certificate) ->
     Xml = esaml:to_xml(SAMLRecord),

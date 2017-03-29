@@ -32,7 +32,7 @@ generate_authn_response(AuthnReq = #esaml_authnreq{issuer=Issuer}, Assertion=#es
             Err;
         Binding=#esaml_binding{} ->
             #esaml_response{
-               id = uuid:to_string(uuid:uuid4()),
+               id = esaml_util:xs_id(),
                request_id = AuthnReq#esaml_authnreq.id,
                issue_instant = Stamp,
                destination = Binding,
