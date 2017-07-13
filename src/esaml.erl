@@ -39,7 +39,7 @@
 
 -export_type([org/0, contact/0, sp_metadata/0, idp_metadata/0,
     authnreq/0, subject/0, assertion/0, logoutreq/0,
-    logoutresp/0, response/0, sp/0, saml_record/0]).
+    logoutresp/0, response/0, sp/0, saml_record/0, provider/0, idp/0]).
 
 -type localized_string() :: string() | [{Locale :: atom(), LocalizedString :: string()}].
 -type name_format() :: email | x509 | windows | krb | persistent | transient | unknown.
