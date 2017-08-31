@@ -127,17 +127,48 @@ validate_authnreq(IDP, ReqData) ->
             validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData)
     end.
 
-validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, _ReqData) ->
+validate_authnreq(IDP, SAMLEncoding, SAMLResponse, RelayState, ReqData) ->
     case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
         {'EXIT', Reason} ->
             {error, {bad_decode, Reason}};
         Xml ->
             case IDP:validate_authn_request(Xml) of
-                {ok, AuthnReq} -> {AuthnReq, RelayState};
+                {ok, AuthnReq} -> 
+                    case verify_signature(wrq:method(ReqData), AuthnReq, ReqData) of
+                        true ->
+                            {AuthnReq, RelayState};
+                        false ->
+                            {error, forbidden}
+                    end;
                 Err -> Err
             end
     end.
 
+verify_signature('POST', _, _) ->
+    true;
+verify_signature('GET', #esaml_authnreq{issuer=Issuer}, ReqData) ->
+    SigAlg = wrq:get_qs_value("SigAlg", ReqData),
+    Signature = wrq:get_qs_value("Signature", ReqData),
+    SPMetadata = esaml_util:load_sp_metadata(Issuer),
+    verify_signature_(SigAlg, SPMetadata, Signature, ReqData).
+
+verify_signature_("http://www.w3.org/2000/09/xmldsig#rsa-sha1", SPMetadata=#esaml_sp_metadata{}, Signature, ReqData) 
+  when is_list(Signature) ->
+    RawPath = wrq:raw_path(ReqData),
+    QS = parse_query_string_no_decoding(RawPath),
+    SAMLRequest = proplists:get_value("SAMLRequest", QS),
+    RelayState = proplists:get_value("RelayState", QS),
+    SigAlg = proplists:get_value("SigAlg", QS),
+    RawSignature = base64:decode(Signature),
+    esaml_binding:is_signature_valid(rsa_sha, SPMetadata, SAMLRequest, RelayState, SigAlg, RawSignature).
+
+parse_query_string_no_decoding(RawPath) ->
+    case string:tokens(RawPath, "?") of
+        [_, QueryStr] ->
+            [ list_to_tuple(string:tokens(S, "=")) || S <- string:tokens(QueryStr, "&") ];
+        _ ->
+            []
+    end.
 
 %% @doc Validate and parse a LogoutRequest or LogoutResponse
 %%

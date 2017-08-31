@@ -10,7 +10,7 @@
 -module(esaml_binding).
 
 -export([decode_request/2, decode_response/2, encode_http_redirect/4, encode_http_post/4]).
--export([generate_payload/2]).
+-export([generate_payload/2, is_signature_valid/6]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/esaml.hrl").
@@ -94,6 +94,27 @@ decode_response(_, SAMLResponse) ->
     end,
 	{Xml, _} = xmerl_scan:string(XmlData, [{namespace_conformant, true}]),
     Xml.
+
+is_signature_valid(rsa_sha, #esaml_sp_metadata{certificate=CertBin}, SAMLRequest, RelayState, SigAlg, Signature) ->
+    case public_key:pkix_decode_cert(CertBin, otp) of
+        #'OTPCertificate'{tbsCertificate=TBS} ->
+            case TBS#'OTPTBSCertificate'.subjectPublicKeyInfo#'OTPSubjectPublicKeyInfo'.subjectPublicKey of
+                PublicKey=#'RSAPublicKey'{} ->
+                    RelayString = case RelayState of
+                                      undefined -> [];
+                                      <<>> -> [];
+                                      _ -> "RelayState=" ++ RelayState ++ "&"
+                                  end,
+                    String = iolist_to_binary(["SAMLRequest=", SAMLRequest, "&", RelayString, "SigAlg=", SigAlg]),
+                    public_key:verify(String, sha, Signature, PublicKey);
+                _ ->
+                    false
+            end;
+        _ ->
+            false
+    end;
+is_signature_valid(_, _, _, _, _, _) ->
+    false.
 
 %% @doc Encode a SAMLRequest (or SAMLResponse) as an HTTP-REDIRECT binding
 %%
