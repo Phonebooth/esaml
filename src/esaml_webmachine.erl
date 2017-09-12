@@ -152,7 +152,9 @@ verify_signature('GET', #esaml_authnreq{issuer=Issuer}, ReqData) ->
     SPMetadata = esaml_util:load_sp_metadata(Issuer),
     verify_signature_(SigAlg, SPMetadata, Signature, ReqData).
 
-verify_signature_("http://www.w3.org/2000/09/xmldsig#rsa-sha1", SPMetadata=#esaml_sp_metadata{}, Signature, ReqData) 
+verify_signature_(_, #esaml_sp_metadata{signed_requests=false}, _, _ReqData) ->
+    true;
+verify_signature_("http://www.w3.org/2000/09/xmldsig#rsa-sha1", SPMetadata=#esaml_sp_metadata{signed_requests=true}, Signature, ReqData) 
   when is_list(Signature) ->
     RawPath = wrq:raw_path(ReqData),
     QS = parse_query_string_no_decoding(RawPath),
@@ -160,7 +162,9 @@ verify_signature_("http://www.w3.org/2000/09/xmldsig#rsa-sha1", SPMetadata=#esam
     RelayState = proplists:get_value("RelayState", QS),
     SigAlg = proplists:get_value("SigAlg", QS),
     RawSignature = base64:decode(Signature),
-    esaml_binding:is_signature_valid(rsa_sha, SPMetadata, SAMLRequest, RelayState, SigAlg, RawSignature).
+    esaml_binding:is_signature_valid(rsa_sha, SPMetadata, SAMLRequest, RelayState, SigAlg, RawSignature);
+verify_signature_(_, _, _, _) ->
+    false.
 
 parse_query_string_no_decoding(RawPath) ->
     case string:tokens(RawPath, "?") of

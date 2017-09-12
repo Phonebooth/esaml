@@ -162,6 +162,16 @@ common_attrib_map("urn:oid:2.5.4.4") -> surName;
 common_attrib_map(Uri = "http://" ++ _) -> list_to_atom(lists:last(string:tokens(Uri, "/")));
 common_attrib_map(Other) when is_list(Other) -> list_to_atom(Other).
 
+ensure_boolean(Val, _Default) when is_boolean(Val) -> Val;
+ensure_boolean(Val, Default) when is_list(Val) -> 
+    case list_to_atom(Val) of
+        B when is_boolean(B) ->
+            B;
+        _ ->
+            Default
+    end;
+ensure_boolean(_, Default) -> Default.
+
 -include("xmerl_xpath_macros.hrl").
 
 decode_authn_request(Xml) ->
@@ -209,6 +219,8 @@ decode_sp_metadata(Xml) ->
           {"ds", 'http://www.w3.org/2000/09/xmldsig#'}],
     esaml_util:threaduntil([
         ?xpath_attr_required("/md:EntityDescriptor/@entityID", esaml_sp_metadata, entity_id, bad_entity),
+        ?xpath_attr("/md:EntityDescriptor/md:SPSSODescriptor/@AuthnRequestsSigned", esaml_sp_metadata, signed_requests, fun (X) -> ensure_boolean(X, true) end),
+        ?xpath_attr("/md:EntityDescriptor/md:SPSSODescriptor/@WantAssertionsSigned", esaml_sp_metadata, signed_assertions, fun (X) -> ensure_boolean(X, true) end),
         ?xpath_list_recurse("/md:EntityDescriptor/md:SPSSODescriptor/md:AssertionConsumerService",
             esaml_sp_metadata, consumer_bindings, decode_binding),
         ?xpath_list_recurse("/md:EntityDescriptor/md:SPSSODescriptor/md:SingleLogoutService",
