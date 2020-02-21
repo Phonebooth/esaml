@@ -182,6 +182,13 @@ load_metadata(Url, FPs) ->
 load_metadata(Url) ->
     case ets:lookup(esaml_idp_meta_cache, Url) of
         [{Url, Meta}] -> Meta;
+        "file://" ++ Path ->
+            case file:read_file(Path) of
+                {ok, Bin} ->
+                    parse_and_cache_xml_metadata_response(Bin);
+                {error, Error} ->
+                    {error, Error}
+            end;
         _ ->
             {ok, {{_Ver, 200, _}, _Headers, Body}} = httpc:request(get, {Url, []}, [{autoredirect, true}], []),
             {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
@@ -190,18 +197,30 @@ load_metadata(Url) ->
             Meta
     end.
 
+
+
 %% @doc Reads SP metadata from a URL (or ETS memory cache)
 -spec load_sp_metadata(Url :: string()) -> esaml:sp_metadata() | {error, atom()}.
 load_sp_metadata(Url) ->
     case ets:lookup(esaml_sp_meta_cache, Url) of
         [{Url, Meta}] -> Meta;
         _ ->
-            case httpc:request(get, {Url, []}, [{autoredirect, true}], []) of
-                {ok, {{_Ver, 200, _}, _Headers, Body}} ->
-                    {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
-                    cache_sp_metadata(Xml);
+            case Url of
+                "file://" ++ Path ->
+                    case file:read_file(Path) of
+                        {ok, Bin} ->
+                            cache_sp_metadata(Bin);
+                        {error, _Error} ->
+                            {error, sp_metadata_not_available}
+                    end;
                 _ ->
-                    {error, sp_metadata_not_available}
+                    case httpc:request(get, {Url, []}, [{autoredirect, true}], []) of
+                        {ok, {{_Ver, 200, _}, _Headers, Body}} ->
+                            {Xml, _} = xmerl_scan:string(Body, [{namespace_conformant, false}]),
+                            cache_sp_metadata(Xml);
+                        _ ->
+                            {error, sp_metadata_not_available}
+                    end
             end
     end.
 

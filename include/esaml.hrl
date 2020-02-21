@@ -53,7 +53,7 @@
 
 -record(esaml_subject, {
 	name = "" :: string(),
-        name_type = transient :: transient | permanent,
+        name_type = transient :: transient | permanent | email,
 	confirmation_method = bearer :: atom(),
         authn_req_id,
         recipient,
