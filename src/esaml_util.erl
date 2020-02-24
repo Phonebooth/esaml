@@ -202,7 +202,8 @@ load_sp_metadata(Url) ->
                 "file://" ++ Path ->
                     case file:read_file(Path) of
                         {ok, Bin} ->
-                            cache_sp_metadata(Bin);
+                            {Xml, _} = xmerl_scan:string(binary_to_list(Bin), [{namespace_conformant, false}]),
+                            cache_sp_metadata(Xml);
                         {error, _Error} ->
                             {error, sp_metadata_not_available}
                     end;
