@@ -63,7 +63,7 @@ reply_with_logoutresp(SP, IDP, Status, RelayState, Req) ->
 %% @private
 reply_with_req(IDP, SignedXml, RelayState, Req) ->
     Target = esaml_binding:encode_http_redirect(IDP, SignedXml, RelayState),
-    {UA, _} = cowboy_req:header(<<"user-agent">>, Req, <<"">>),
+    UA = cowboy_req:header(<<"user-agent">>, Req, <<"">>),
     IsIE = not (binary:match(UA, <<"MSIE">>) =:= nomatch),
     if IsIE andalso (byte_size(Target) > 2042) ->
         Html = esaml_binding:encode_http_post(IDP, SignedXml, RelayState),
@@ -87,26 +87,27 @@ reply_with_req(IDP, SignedXml, RelayState, Req) ->
         {response, esaml:logoutresp(), RelayState::binary(), Req} |
         {error, Reason :: term(), Req}.
 validate_logout(SP, Req) ->
-    {Method, Req} = cowboy_req:method(Req),
+    Method = cowboy_req:method(Req),
     case Method of
         <<"POST">> ->
-            {ok, PostVals, Req2} = cowboy_req:body_qs(128000, Req),
+            {ok, PostVals, Req2} = cowboy_req:read_urlencoded_body(Req),
             SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
             SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals,
                 proplists:get_value(<<"SAMLRequest">>, PostVals)),
             RelayState = proplists:get_value(<<"RelayState">>, PostVals, <<>>),
             validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2);
         <<"GET">> ->
-            {SAMLEncoding, Req2} = cowboy_req:qs_val(<<"SAMLEncoding">>, Req),
-            {SAMLResponse, Req2} = case cowboy_req:qs_val(<<"SAMLResponse">>, Req2) of
-                {undefined, Req2} -> cowboy_req:qs_val(<<"SAMLRequest">>, Req2);
+            QsVals = cowboy_req:parse_qs(Req),
+            SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, QsVals),
+            SAMLResponse = case proplists:get_value(<<"SAMLResponse">>, QsVals) of
+                undefined -> proplists:get_value(<<"SAMLRequest">>, QsVals);
                 Other -> Other
             end,
-            RelayState = case cowboy_req:qs_val(<<"RelayState">>, Req2) of
-                {undefined, Req2} -> <<>>;
-                {B, Req2} -> B
+            RelayState = case proplists:get_value(<<"RelayState">>, QsVals) of
+                undefined -> <<>>;
+                B -> B
             end,
-            validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2)
+            validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req)
     end.
 
 %% @private
@@ -156,7 +157,7 @@ validate_assertion(SP, Req) ->
         {ok, esaml:assertion(), RelayState :: binary(), Req} |
         {error, Reason :: term(), Req}.
 validate_assertion(SP, DuplicateFun, Req) ->
-    {ok, PostVals, Req2} = cowboy_req:body_qs(128000, Req),
+    {ok, PostVals, Req2} = cowboy_req:read_urlencoded_body(Req),
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
     SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals),
     RelayState = proplists:get_value(<<"RelayState">>, PostVals),
